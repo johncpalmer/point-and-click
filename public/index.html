@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ISLAND</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='42' fill='%231b4e6b'/%3E%3Ccircle cx='50' cy='50' r='20' fill='%23b8a04a'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <!-- Title screen -->
+  <div id="title-screen">
+    <div class="title-rings"></div>
+    <h1 class="title-word">ISLAND</h1>
+    <p class="title-sub">Somewhere on a deep and patient sea, something is still listening.</p>
+    <button id="begin-btn">Begin</button>
+    <p class="title-mode" id="title-mode"></p>
+  </div>
+
+  <!-- Game -->
+  <div id="game" hidden>
+    <div id="stage">
+      <img id="scene-img" alt="" draggable="false" />
+      <img id="scene-img-old" alt="" draggable="false" />
+      <div id="hotspots"></div>
+      <div id="vignette"></div>
+      <div id="ripple"></div>
+      <div id="cursor-ring"></div>
+
+      <!-- transition veil -->
+      <div id="veil">
+        <div class="veil-rings"><i></i><i></i><i></i></div>
+        <p id="veil-text"></p>
+      </div>
+
+      <!-- HUD -->
+      <header id="hud">
+        <div id="hud-left">
+          <h2 id="scene-name"></h2>
+          <div id="depth-pips"></div>
+        </div>
+        <button id="ascend-btn" title="Return to the wider view">▲ ascend</button>
+      </header>
+
+      <p id="scene-desc"></p>
+      <p id="toast" hidden></p>
+
+      <!-- Inventory -->
+      <div id="inventory">
+        <span class="inv-label">satchel</span>
+        <div id="inv-items"></div>
+      </div>
+
+      <!-- Object pickup card -->
+      <div id="object-card" hidden>
+        <h3 id="obj-name"></h3>
+        <p id="obj-desc"></p>
+        <div class="card-actions">
+          <button id="obj-take">Take it</button>
+          <button id="obj-leave">Leave it</button>
+        </div>
+      </div>
+
+      <!-- Character chat -->
+      <div id="chat" hidden>
+        <div id="chat-head">
+          <span id="chat-name"></span>
+          <button id="chat-close" title="Walk away">walk away</button>
+        </div>
+        <div id="chat-log"></div>
+        <form id="chat-form">
+          <input id="chat-input" autocomplete="off" maxlength="240" placeholder="Say something…" />
+          <button type="submit">›</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/audio.js"></script>
+  <script src="/js/game.js"></script>
+</body>
+</html>
