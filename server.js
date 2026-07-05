@@ -66,6 +66,7 @@ async function inventScene({ parent, target, targetDescription, direction, depth
     ambience: data.ambience || 'wind',
     character: data.character || null,
     objects: (data.objects || []).map((o) => ({ ...o, id: store.newId() })),
+    exits: data.exits || [],
     hotspots: [],
     createdAt: Date.now(),
   };

@@ -1,0 +1,182 @@
+{
+  "75c39a5a599e9ea7": {
+    "id": "75c39a5a599e9ea7",
+    "depth": 0,
+    "parentId": null,
+    "clickTarget": null,
+    "name": "The Island from Above",
+    "description": "You drift high above an unnamed island cupped by ultramarine sea. A crescent bay cuts deep into its western shore, embraced by dark pine forest. The eastern cliffs rise sharp and pale, crowned by the ruins of a stone tower that catches the late afternoon sun. At the island's heart, a circular crater lake gleams like polished obsidian, ringed by copper-green moss. Thin paths connect scattered structures: a pier reaching into the bay, a cluster of tide pools along the southern rocks, something dome-shaped half-hidden in the northern woods. The whole island hums with patient stillness.",
+    "imagePrompt": "A bird's-eye view painting of a small mysterious island in a deep ultramarine ocean, late afternoon golden light. The island is roughly oval, perhaps two miles across. Foreground bottom: dark green pine forest covering the western half, with a dramatic crescent-shaped bay cutting into it, a wooden pier visible as a thin line. Midground center: a perfect circular crater lake of black water, surrounded by bright copper-green moss forming a ring, the island's dark heart. Right side: dramatic pale limestone cliffs rising along the eastern shore, topped by the stone ruins of a cylindrical signal tower catching warm sunlight. Upper background: northern woods with a weathered copper dome barely visible among trees. Lower background: southern shore with geometric tide pools carved into dark rocks, arranged in patterns. Scattered throughout: faint thread-like paths connecting locations. Composition: slightly tilted aerial perspective, the crater lake off-center creating visual tension. Lighting: warm late afternoon sun from the right, casting long shadows, the sea reflecting sky gradients from deep blue to turquoise. Painterly style, muted colors, atmospheric perspective, quiet and melancholic, no people visible, scale suggested by tiny structures. The whole island feels like an instrument waiting to be played.",
+    "ambience": "wind",
+    "character": null,
+    "objects": [],
+    "hotspots": [],
+    "createdAt": 1783203763827,
+    "image": "/images/75c39a5a599e9ea7.jpg"
+  },
+  "f09294fce1f40742": {
+    "id": "f09294fce1f40742",
+    "depth": 0,
+    "parentId": null,
+    "clickTarget": null,
+    "name": "The Listening Island",
+    "description": "You drift high above an island shaped like a cupped hand, its palm a crescent bay of black sand facing west. Tide pools glitter along the northern cliffs. A pine forest darkens the eastern slopes, broken by the white geometric forms of abandoned instruments — towers, terraces, stone circles. A narrow causeway leads to a sea-stack crowned with brass. The ocean surrounding is impossibly blue, and even from this height you sense a low vibration in the air.",
+    "imagePrompt": "Aerial view of a mysterious island at golden hour, painted in the style of classical landscape painting with rich ultramarine seas. The island is crescent-shaped, roughly half a mile across, with a black sand beach forming a protected bay on the western side. Northern cliffs drop sheer into the ocean, their tops dotted with circular tide pools that catch the light like mirrors. The eastern two-thirds is covered in dark green pine forest, through which geometric white stone structures emerge — a tall signal tower with brass fixtures, terraced listening platforms, an open stone circle. A thin natural causeway of black rock extends southwest from the southern tip to an isolated sea-stack, perhaps two hundred feet tall, topped with what appears to be a large brass horn or resonator catching the setting sun. The sea is graduated layers of deep ultramarine to turquoise near the shallows. Soft golden light rakes across the scene from the west, casting long shadows. The composition is straight overhead but tilted slightly to show dimensionality, with the island occupying the central two-thirds of the frame. Atmospheric perspective gives a sense of height and solitude. The overall mood is serene, enigmatic, and faintly melancholic, as if this place is waiting for something or someone.",
+    "ambience": "wind",
+    "character": null,
+    "objects": [],
+    "hotspots": [],
+    "createdAt": 1783203773921,
+    "image": "/images/f09294fce1f40742.jpg"
+  },
+  "f6e82b8ca672e581": {
+    "id": "f6e82b8ca672e581",
+    "depth": 0,
+    "parentId": null,
+    "clickTarget": null,
+    "name": "The Island from Above",
+    "description": "You hover high above an island shaped like a cupped hand, its palm a sheltered bay of mirror-calm water. The fingers are five ridges radiating outward: forested slopes, bare stone cliffs, a lighthouse peninsula, terraced ruins climbing a hillside, and a thin spit of white sand curving into the ultramarine sea. Between them, paths and staircases carved into rock descend toward the shore.",
+    "imagePrompt": "Aerial bird's-eye view painting of a small island in a deep ultramarine ocean, shaped like an open hand with five distinct peninsulas radiating from a central sheltered bay. The bay water is glassy and pale turquoise, reflecting the sky. Upper left peninsula is densely forested with dark green pines. Upper right peninsula ends in white limestone cliffs with brass horn instruments embedded in the rock face, gleaming faintly. Center-right peninsula has a slender white lighthouse on bare stone at its tip. Lower right peninsula shows terraced stone ruins and archways ascending a hillside, half-reclaimed by moss. Lower left peninsula is a thin crescent of white sand beach. Between the peninsulas, stone staircases and narrow paths zigzag down the slopes. The island's central area has a cluster of small stone buildings with blue tile roofs near the bay's shore. Late afternoon golden light from the right side, long shadows, gentle waves surrounding the island, a few scattered rocky outcroppings in the deep blue sea. Painterly style, serene and vast perspective, distant cumulus clouds, muted palette of blues, greens, white stone, and weathered brass.",
+    "ambience": "wind",
+    "character": null,
+    "objects": [],
+    "hotspots": [],
+    "createdAt": 1783203781821,
+    "image": "/images/f6e82b8ca672e581.jpg"
+  },
+  "38d7ae132bc44f2b": {
+    "id": "38d7ae132bc44f2b",
+    "depth": 1,
+    "parentId": "f6e82b8ca672e581",
+    "clickTarget": "central plaza with red-roofed pavilion",
+    "name": "The Pavilion of Returning Echoes",
+    "description": "You stand in a circular plaza paved with pale limestone, worn smooth by centuries of footsteps. At its center rises a pavilion with a crimson lacquered roof, its eaves curved upward like cupped hands. Eight stone pillars support the structure, and between them hang tarnished brass chimes that turn slowly in the salt breeze, producing a soft, layered hum. The plaza is empty except for a shallow pool at the pavilion's heart, its surface perfectly still.",
+    "imagePrompt": "Wide-angle view of an ancient circular stone plaza under open sky, centered on an elegant pavilion with a brilliant crimson peaked roof supported by eight weathered stone pillars. The pavilion is open-sided, with brass chimes hanging between pillars catching soft afternoon light. The plaza is paved in pale cream limestone, worn and smooth, with eight pathways radiating outward like wheel spokes. At the pavilion's center, a circular shallow pool of dark still water reflects the roof above. The composition places the pavilion in the middle third of the frame, with the plaza extending to all edges. Soft golden-hour lighting casts long shadows from the pillars. Beyond the plaza edges, hints of descending stone paths and distant forested slopes. Atmosphere is serene, melancholic, painted in the style of a classical landscape with muted colors except for the vivid crimson roof. No people. Ultramarine sky with high thin clouds.",
+    "ambience": "wind",
+    "character": null,
+    "objects": [
+      {
+        "name": "Tide Chart Medallion",
+        "description": "A bronze disc half-submerged at the pool's edge, engraved with concentric circles and notches marking unknown measurements.",
+        "position": "resting at the southern edge of the central pool, partially visible above the water line",
+        "id": "530559ac6e529ae5",
+        "hotspot": {
+          "x": 0.5,
+          "y": 0.71,
+          "radius": 0.04
+        }
+      }
+    ],
+    "hotspots": [],
+    "createdAt": 1783203809357,
+    "image": "/images/38d7ae132bc44f2b.jpg"
+  },
+  "e957c9367b34d8b0": {
+    "id": "e957c9367b34d8b0",
+    "depth": 2,
+    "parentId": "38d7ae132bc44f2b",
+    "clickTarget": "shallow pool at the pavilion's heart",
+    "name": "The Listening Pool",
+    "description": "You kneel at the pool's edge, close enough to see your reflection waver in its obsidian-dark water. The pool is lined with smooth stones arranged in a spiral pattern that draws your eye toward the center, where a brass valve sits submerged just beneath the surface. When the wind shifts, the hanging chimes above cause faint ripples to emanate from the pool's heart, as if it's breathing in response to sound.",
+    "imagePrompt": "A close intimate view looking down into a circular pool of dark mirror-like water, lined with pale smooth stones arranged in a descending spiral pattern toward the center. Just beneath the water's surface, visible through the perfect clarity, sits an ornate brass valve mechanism with intricate engravings. The crimson lacquered roof curves overhead in the upper portion of the frame, out of focus. Soft ripples emanate concentrically from the pool's center. The lighting is diffused and gentle, with the sky's reflection mingling with the depths below. The stone rim of the pool occupies the foreground in warm limestone tones. Contemplative, intimate composition suggesting mysterious purpose and patient waiting. Muted color palette of obsidian water, pale stone, aged brass, and the red roof's reflection.",
+    "ambience": "water",
+    "character": null,
+    "objects": [
+      {
+        "name": "tuning key",
+        "description": "A small brass key with a hollow octagonal head rests on the pool's rim, its surface etched with wave patterns that catch the light.",
+        "position": "resting on the limestone rim in the lower left foreground, partially in shadow",
+        "id": "6f0e75c5995b43d5",
+        "hotspot": {
+          "x": 0.5,
+          "y": 0.46,
+          "radius": 0.15
+        }
+      }
+    ],
+    "hotspots": [],
+    "createdAt": 1783203844182,
+    "image": "/images/e957c9367b34d8b0.jpg"
+  },
+  "78e4dd234fb57c46": {
+    "id": "78e4dd234fb57c46",
+    "depth": 2,
+    "parentId": "e957c9367b34d8b0",
+    "clickTarget": "smooth stone at pool's edge",
+    "name": "The Stone's Memory",
+    "description": "You lift the pale stone from its setting, and beneath it find a shallow depression carved into the pool's rim—a perfect handprint, adult-sized, smoothed by time. The stone itself fits your palm exactly, its weight surprising, dense as a promise. Around the empty space where it rested, you notice faint scratches in the surrounding stones: tally marks, or perhaps a counting system you don't yet understand.",
+    "imagePrompt": "Close intimate view of a weathered stone pool rim at twilight, composition centered on a carved handprint depression in dark basalt where a pale oval stone has been removed. The pale stone rests in the foreground bottom right, catching soft golden light, revealing subtle spiral patterns on its surface. Surrounding stones show faint scratched marks. Beyond the immediate focus, the dark pool water reflects deep blue sky, and blurred brass chimes hang in the upper left background. Lighting is warm and directional from late afternoon sun, creating gentle shadows in the carved handprint. Painterly style with attention to texture—the contrast between smooth worn stone and rough carved basalt. Melancholic and intimate mood, very shallow depth of field keeping focus on the handprint and removed stone.",
+    "ambience": "water",
+    "character": null,
+    "objects": [
+      {
+        "name": "pale spiral stone",
+        "description": "Heavier than it looks, its surface bears a faint carved spiral that matches the pool's pattern—perhaps a key, or a marker of those who came before.",
+        "position": "resting in foreground right, catching light on its spiral-marked surface",
+        "id": "766ea9cb5c5f3ee3",
+        "hotspot": {
+          "x": 0.92,
+          "y": 0.88,
+          "radius": 0.06
+        }
+      }
+    ],
+    "hotspots": [],
+    "createdAt": 1783203893384,
+    "image": "/images/78e4dd234fb57c46.jpg"
+  },
+  "74f6083418d6bf7d": {
+    "id": "74f6083418d6bf7d",
+    "depth": 3,
+    "parentId": "78e4dd234fb57c46",
+    "clickTarget": "carved handprint depression in the pool's rim",
+    "name": "The Handprint Chamber",
+    "description": "You press your own hand into the carved depression and feel a faint warmth, as if the stone remembers every palm that has rested here. The warmth guides your attention downward: beneath the rim, hidden in shadow, a narrow passage opens into the pool's foundation—dry stone steps descending into darkness, their edges worn smooth by careful feet. Water drips somewhere below, each drop arriving with the patience of decades.",
+    "imagePrompt": "A close intimate view looking down into a stone-carved passage beneath an ancient tidal pool's rim. In the immediate foreground, a human hand rests in a smoothed handprint depression carved into pale limestone, fingers perfectly aligned with centuries-old grooves. The carved rim curves away showing geometric tally marks scratched into its surface. Below, narrow stone steps descend into blue-black shadow, their edges rounded and polished by generations of use. Weak daylight filters down from above, creating a gradient from warm grey stone at the top to deep indigo darkness below. The walls are close, intimate, constructed of fitted stones with no mortar. A single drop of water hangs suspended in the shaft of light, mid-fall, catching the illumination. The composition is vertical, emphasizing depth and descent. Painterly style, muted palette of limestone greys, ocean blues, and shadow purples. Mood: archaeological intimacy, the threshold between known and unknown, respectful silence.",
+    "ambience": "cavern",
+    "character": null,
+    "objects": [
+      {
+        "name": "listening cord",
+        "description": "A length of braided cord hangs along the passage wall, its fibers stiff with salt and age, knotted at regular intervals—perhaps a handhold for the descent, or a measuring tool.",
+        "position": "hanging vertically along the left wall of the descending passage, disappearing into shadow below",
+        "id": "a3597ad64f06dda3",
+        "hotspot": {
+          "x": 0.5872727584154328,
+          "y": 0.7,
+          "radius": 0.05
+        }
+      }
+    ],
+    "hotspots": [],
+    "createdAt": 1783203932081,
+    "image": "/images/74f6083418d6bf7d.jpg"
+  },
+  "1f6e5ebbbcfb8882": {
+    "id": "1f6e5ebbbcfb8882",
+    "depth": 4,
+    "parentId": "74f6083418d6bf7d",
+    "clickTarget": "water droplet falling in the darkness",
+    "name": "The Listening Pool",
+    "description": "You descend the worn steps into a small subterranean chamber, perfectly circular, carved from living rock. At its center lies a shallow pool no wider than your outstretched arms, its surface black and utterly still. The droplets fall from a narrow fissure in the ceiling, but when they strike the water, they make no ripple—instead, each impact produces a clear, sustained tone that hangs in the air for several heartbeats before fading. The walls are covered in shallow grooves that spiral inward toward the pool, and you realize the entire chamber is a resonance device, amplifying and purifying each drop's song into something almost unbearably pure.",
+    "imagePrompt": "A perfectly circular underground chamber carved from dark grey stone, viewed from slightly above and to one side. In the center, a small circular pool of black water reflects the faint blue-grey light filtering from above. The walls are covered in spiral grooves that catch subtle highlights. A single water droplet is captured mid-fall in the center of the frame, backlit by the dim light from the fissure above, creating a tiny point of brightness against the shadowed stone. The ceiling curves into a gentle dome with one narrow crack letting in pale light. The worn stone steps are visible at the lower edge of frame. The atmosphere is one of deep stillness and acoustic intimacy, with subtle variations in the stone's surface suggesting careful, ancient craftsmanship. Muted color palette of deep greys, blacks, and cool blue-grey light. Painterly style, reminiscent of a quiet sanctuary.",
+    "ambience": "water",
+    "character": null,
+    "objects": [
+      {
+        "name": "tuning key",
+        "description": "A small bronze key with five prongs of different lengths rests on the pool's stone rim, its surface green with age but its edges deliberately precise.",
+        "position": "resting on the curved stone rim of the pool in the right foreground, partially in shadow",
+        "id": "684e499ec532b39d",
+        "hotspot": {
+          "x": 0.45481656998111375,
+          "y": 0.7,
+          "radius": 0.05
+        }
+      }
+    ],
+    "hotspots": [],
+    "createdAt": 1783203979039,
+    "image": "/images/1f6e5ebbbcfb8882.jpg"
+  }
+}
