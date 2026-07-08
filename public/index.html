@@ -12,7 +12,7 @@
   <div id="title-screen">
     <div class="title-rings"></div>
     <h1 class="title-word">ISLAND</h1>
-    <p class="title-sub">Somewhere on a deep and patient sea, something is still listening.</p>
+    <p class="title-sub">The island of Cadence is still listening.</p>
     <button id="begin-btn">Begin</button>
     <p class="title-mode" id="title-mode"></p>
   </div>
@@ -23,9 +23,11 @@
       <img id="scene-img" alt="" draggable="false" />
       <img id="scene-img-old" alt="" draggable="false" />
       <div id="hotspots"></div>
+      <div id="nav-dots"></div>
       <div id="vignette"></div>
       <div id="ripple"></div>
       <div id="cursor-ring"></div>
+      <div id="cursor-label"></div>
 
       <!-- transition veil -->
       <div id="veil">
@@ -49,6 +51,17 @@
       <div id="inventory">
         <span class="inv-label">satchel</span>
         <div id="inv-items"></div>
+      </div>
+
+      <!-- Journal -->
+      <button id="journal-btn" title="Fragments of the Answering">◈ journal <span id="journal-count">0/0</span></button>
+
+      <div id="journal" hidden>
+        <div id="journal-head">
+          <span>Fragments of the Answering</span>
+          <button id="journal-close" title="Close">✕</button>
+        </div>
+        <div id="journal-list"></div>
       </div>
 
       <!-- Object pickup card -->

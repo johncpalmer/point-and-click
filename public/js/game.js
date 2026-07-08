@@ -16,6 +16,7 @@
     img: $('scene-img'),
     imgOld: $('scene-img-old'),
     hotspots: $('hotspots'),
+    navDots: $('nav-dots'),
     veil: $('veil'),
     veilText: $('veil-text'),
     sceneName: $('scene-name'),
@@ -25,6 +26,7 @@
     toast: $('toast'),
     ripple: $('ripple'),
     cursor: $('cursor-ring'),
+    cursorLabel: $('cursor-label'),
     invItems: $('inv-items'),
     objCard: $('object-card'),
     objName: $('obj-name'),
@@ -37,14 +39,22 @@
     chatForm: $('chat-form'),
     chatInput: $('chat-input'),
     chatClose: $('chat-close'),
+    journalBtn: $('journal-btn'),
+    journalCount: $('journal-count'),
+    journal: $('journal'),
+    journalList: $('journal-list'),
+    journalClose: $('journal-close'),
   };
 
   const state = {
     scene: null,
     busy: false,
-    inventory: JSON.parse(localStorage.getItem('island.inventory') || '[]'),
-    chat: null, // { messages: [], ended: false }
+    inventory: [],
+    journal: [],
+    cluesTotal: 0,
+    chat: null, // { characterId, ended }
     pendingObject: null,
+    overHotspot: false,
   };
 
   const OBJECT_GLYPHS = ['🗝', '🔮', '🐚', '🪶', '🧭', '📜', '🫙', '🪨', '🔔', '🕯'];
@@ -56,10 +66,6 @@
     root: ['The sea remembers an island…', 'Far below, something waits…'],
   };
 
-  function takenIds() {
-    return state.inventory.map((i) => i.id);
-  }
-
   // ------------------------------------------------------------------ API
 
   async function api(path, body) {
@@ -68,6 +74,13 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body || {}),
     });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+    return json;
+  }
+
+  async function apiGet(path) {
+    const res = await fetch(path);
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
     return json;
@@ -119,7 +132,7 @@
 
     state.scene = scene;
     el.sceneName.textContent = scene.name;
-    el.sceneDesc.textContent = scene.description;
+    el.sceneDesc.textContent = scene.desc;
     el.sceneDesc.classList.remove('showing');
     setTimeout(() => el.sceneDesc.classList.add('showing'), 250);
     setTimeout(() => el.sceneDesc.classList.remove('showing'), 9000);
@@ -134,8 +147,11 @@
     el.ascend.hidden = !scene.parentId;
 
     renderHotspots(scene);
+    renderNavDots(scene);
     closeChat(true);
     closeObjectCard();
+    hideLabel();
+    el.cursor.classList.remove('hot');
 
     IslandAudio.setAmbience(scene.ambience);
     IslandAudio.chime();
@@ -160,8 +176,15 @@
         e.stopPropagation();
         onClick();
       });
-      d.addEventListener('mouseenter', () => el.cursor.classList.add('hot'));
-      d.addEventListener('mouseleave', () => el.cursor.classList.remove('hot'));
+      d.addEventListener('mouseenter', () => {
+        state.overHotspot = true;
+        el.cursor.classList.add('hot');
+        hideLabel();
+      });
+      d.addEventListener('mouseleave', () => {
+        state.overHotspot = false;
+        el.cursor.classList.remove('hot');
+      });
       el.hotspots.appendChild(d);
     }
 
@@ -173,11 +196,87 @@
     }
   }
 
+  // decorative dots marking where you can go, right after a scene loads
+  function renderNavDots(scene) {
+    el.navDots.innerHTML = '';
+    for (const np of scene.navPoints || []) {
+      const d = document.createElement('div');
+      d.className = 'nav-dot';
+      d.style.left = `${np.x * 100}%`;
+      d.style.top = `${np.y * 100}%`;
+      el.navDots.appendChild(d);
+      setTimeout(() => d.remove(), 3600);
+    }
+  }
+
+  // ------------------------------------------------------------------ cursor / nav affordance
+
+  function showLabel(text) {
+    el.cursorLabel.textContent = text;
+    el.cursorLabel.classList.add('show');
+  }
+
+  function hideLabel() {
+    el.cursorLabel.classList.remove('show');
+  }
+
+  function panelsOpen() {
+    return !el.chat.hidden || !el.objCard.hidden || !el.journal.hidden;
+  }
+
+  function updateHover(nx, ny) {
+    const scene = state.scene;
+    if (!scene || state.overHotspot || state.busy || panelsOpen()) {
+      hideLabel();
+      return;
+    }
+
+    // top strip: ascend hint
+    if (scene.parentId && ny < 0.07) {
+      showLabel('▴ ascend');
+      el.cursor.classList.add('hot');
+      return;
+    }
+
+    let found = null;
+    for (const np of scene.navPoints || []) {
+      let dx = nx - np.x;
+      const dy = ny - np.y;
+      dx *= 1.6; // scale x by stage aspect so distance feels circular
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const threshold = Math.max(np.radius * 1.7, 0.09);
+      if (dist <= threshold) {
+        found = np;
+        break;
+      }
+    }
+
+    if (found) {
+      const glyph = found.kind === 'deeper' ? '▾ ' : '▸ ';
+      showLabel(glyph + found.name);
+      el.cursor.classList.add('hot');
+    } else {
+      hideLabel();
+      el.cursor.classList.remove('hot');
+    }
+  }
+
+  function trackCursor(e) {
+    const rect = el.stage.getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const py = e.clientY - rect.top;
+    el.cursor.style.left = `${px}px`;
+    el.cursor.style.top = `${py}px`;
+    el.cursorLabel.style.left = `${px + 14}px`;
+    el.cursorLabel.style.top = `${py + 18}px`;
+    updateHover(px / rect.width, py / rect.height);
+  }
+
   // ------------------------------------------------------------------ click → travel
 
   async function handleStageClick(e) {
     if (state.busy || !state.scene) return;
-    if (!el.chat.hidden || !el.objCard.hidden) return;
+    if (panelsOpen()) return;
 
     const rect = el.stage.getBoundingClientRect();
     const x = (e.clientX - rect.left) / rect.width;
@@ -192,21 +291,22 @@
     IslandAudio.click();
 
     state.busy = true;
+    hideLabel();
+    el.cursor.classList.remove('hot');
     const slowReveal = setTimeout(() => veilOn('deeper'), 550);
 
     try {
       const out = await api('/api/click', {
-        sceneId: state.scene.id,
+        nodeId: state.scene.id,
         x,
         y,
-        takenObjects: takenIds(),
       });
 
       if (out.result === 'blocked') {
         clearTimeout(slowReveal);
         veilOff();
         IslandAudio.denied();
-        toast(out.description || 'Nothing draws you there.');
+        toast(out.message || 'Nothing draws you there.');
         return;
       }
 
@@ -228,10 +328,18 @@
   async function ascend() {
     if (state.busy || !state.scene || !state.scene.parentId) return;
     state.busy = true;
+    hideLabel();
+    el.cursor.classList.remove('hot');
     veilOn('up');
     IslandAudio.whoosh(true);
     try {
-      const out = await api(`/api/scene/${state.scene.parentId}`, { takenObjects: takenIds() });
+      const out = await api('/api/ascend', { nodeId: state.scene.id });
+      if (out.result === 'blocked') {
+        veilOff();
+        IslandAudio.denied();
+        toast(out.message || 'The wind refuses, for now.');
+        return;
+      }
       await showScene(out.scene, { direction: 'up' });
     } catch (err) {
       veilOff();
@@ -267,33 +375,83 @@
     el.objCard.hidden = true;
   }
 
-  function takeObject() {
+  async function takeObject() {
     const obj = state.pendingObject;
-    if (!obj) return;
-    state.inventory.push({
-      id: obj.id,
-      name: obj.name,
-      description: obj.description,
-      glyph: OBJECT_GLYPHS[state.inventory.length % OBJECT_GLYPHS.length],
-    });
-    localStorage.setItem('island.inventory', JSON.stringify(state.inventory));
-    state.scene.objects = state.scene.objects.filter((o) => o.id !== obj.id);
-    renderHotspots(state.scene);
-    renderInventory();
-    closeObjectCard();
-    IslandAudio.pickup();
-    toast(`The ${obj.name} settles into your satchel.`);
+    if (!obj || !state.scene) return;
+    try {
+      const out = await api('/api/take', { nodeId: state.scene.id, objectId: obj.id });
+      state.inventory = out.inventory || state.inventory;
+      state.scene.objects = state.scene.objects.filter((o) => o.id !== obj.id);
+      renderHotspots(state.scene);
+      renderInventory();
+      closeObjectCard();
+      IslandAudio.pickup();
+      toast(`The ${obj.name} settles into your satchel.`);
+    } catch (err) {
+      toast('It will not come free just now.');
+      console.error(err);
+    }
   }
 
   function renderInventory() {
     el.invItems.innerHTML = '';
-    for (const item of state.inventory) {
+    state.inventory.forEach((item, i) => {
       const d = document.createElement('div');
       d.className = 'inv-item';
       d.dataset.name = `${item.name} — ${item.description}`;
-      d.textContent = item.glyph;
+      d.textContent = OBJECT_GLYPHS[i % OBJECT_GLYPHS.length];
       el.invItems.appendChild(d);
+    });
+  }
+
+  // ------------------------------------------------------------------ journal
+
+  function renderJournal() {
+    el.journalCount.textContent = `${state.journal.length}/${state.cluesTotal}`;
+    el.journalList.innerHTML = '';
+    for (const entry of state.journal) {
+      const d = document.createElement('div');
+      d.className = 'journal-entry';
+      const h = document.createElement('h4');
+      h.textContent = entry.title;
+      const p = document.createElement('p');
+      p.textContent = entry.text;
+      d.appendChild(h);
+      d.appendChild(p);
+      el.journalList.appendChild(d);
     }
+    const unfound = Math.max(state.cluesTotal - state.journal.length, 0);
+    for (let i = 0; i < unfound; i++) {
+      const d = document.createElement('div');
+      d.className = 'journal-entry placeholder';
+      d.textContent = '— an unheard fragment —';
+      el.journalList.appendChild(d);
+    }
+  }
+
+  function openJournal() {
+    el.journal.hidden = false;
+    IslandAudio.blip();
+  }
+
+  function closeJournal() {
+    el.journal.hidden = true;
+  }
+
+  function pulseJournalBtn() {
+    el.journalBtn.classList.remove('pulse');
+    void el.journalBtn.offsetWidth;
+    el.journalBtn.classList.add('pulse');
+    setTimeout(() => el.journalBtn.classList.remove('pulse'), 1500);
+  }
+
+  function handleNewClue(clue) {
+    if (!clue) return;
+    state.journal.push(clue);
+    renderJournal();
+    toast(`A fragment settles into your journal — ${clue.title}`);
+    IslandAudio.pickup();
+    pulseJournalBtn();
   }
 
   // ------------------------------------------------------------------ chat
@@ -336,12 +494,17 @@
     el.chatName.textContent = scene.character.name;
     el.chatLog.innerHTML = '';
     el.chatInput.value = '';
-    state.chat = { messages: [], ended: false };
+    state.chat = { characterId: scene.character.id, ended: false };
     try {
-      const out = await api('/api/chat/greet', { sceneId: scene.id });
-      state.chat.messages.push({ role: 'assistant', content: out.reply });
+      const out = await api('/api/chat/greet', { characterId: scene.character.id });
       const p = addMsg('them', '', out.character);
       await typewrite(p, out.reply);
+      if (out.ended) {
+        state.chat.ended = true;
+        el.chat.classList.add('ended');
+        addMsg('sys', 'The conversation has ended. They return to their thoughts.');
+      }
+      handleNewClue(out.newClue);
       el.chatInput.focus();
     } catch (err) {
       addMsg('sys', 'They regard you in silence.');
@@ -355,13 +518,11 @@
     if (!text || !state.chat || state.chat.ended) return;
     el.chatInput.value = '';
     addMsg('you', text);
-    state.chat.messages.push({ role: 'user', content: text });
     try {
       const out = await api('/api/chat', {
-        sceneId: state.scene.id,
-        messages: state.chat.messages,
+        characterId: state.chat.characterId,
+        message: text,
       });
-      state.chat.messages.push({ role: 'assistant', content: out.reply });
       const p = addMsg('them', '', out.character);
       await typewrite(p, out.reply);
       if (out.ended) {
@@ -369,6 +530,7 @@
         el.chat.classList.add('ended');
         addMsg('sys', 'The conversation has ended. They return to their thoughts.');
       }
+      handleNewClue(out.newClue);
     } catch (err) {
       addMsg('sys', 'The wind swallows your words. Try again.');
       console.error(err);
@@ -381,14 +543,6 @@
     state.chat = null;
   }
 
-  // ------------------------------------------------------------------ cursor
-
-  function trackCursor(e) {
-    const rect = el.stage.getBoundingClientRect();
-    el.cursor.style.left = `${e.clientX - rect.left}px`;
-    el.cursor.style.top = `${e.clientY - rect.top}px`;
-  }
-
   // ------------------------------------------------------------------ boot
 
   async function begin() {
@@ -396,15 +550,23 @@
     el.begin.disabled = true;
     el.begin.textContent = 'the sea rises…';
     try {
-      const out = await api('/api/root', { takenObjects: takenIds() });
+      const [rootOut, stateOut] = await Promise.all([
+        api('/api/root', {}),
+        apiGet('/api/state'),
+      ]);
+      state.inventory = stateOut.inventory || [];
+      state.journal = stateOut.journal || [];
+      state.cluesTotal = stateOut.cluesTotal || 0;
+
       el.title.style.transition = 'opacity 1.6s ease';
       el.title.style.opacity = '0';
       el.title.style.pointerEvents = 'none';
       setTimeout(() => (el.title.hidden = true), 1700);
       el.game.hidden = false;
       renderInventory();
+      renderJournal();
       IslandAudio.whoosh(false);
-      await showScene(out.scene, { direction: 'root' });
+      await showScene(rootOut.scene, { direction: 'root' });
     } catch (err) {
       el.begin.disabled = false;
       el.begin.textContent = 'Begin';
@@ -440,10 +602,20 @@
   el.chat.addEventListener('click', (e) => e.stopPropagation());
   el.chatForm.addEventListener('submit', sendChat);
   el.chatClose.addEventListener('click', () => closeChat());
+  el.journalBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openJournal();
+  });
+  el.journalClose.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeJournal();
+  });
+  el.journal.addEventListener('click', (e) => e.stopPropagation());
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       closeObjectCard();
       closeChat();
+      closeJournal();
     }
   });
 })();
