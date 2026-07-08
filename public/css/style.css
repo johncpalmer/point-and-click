@@ -581,6 +581,10 @@ button {
 }
 
 .panel-obj { border: 1px solid rgba(255, 212, 121, 0.5); }
+
+/* inspect mode (viewing an item already in the satchel): no TAKE action */
+#object-card.inspect #obj-take { display: none; }
+#object-card.inspect #obj-leave { flex: 1; }
 .panel-chat { border: 1px solid rgba(95, 216, 255, 0.45); }
 
 @keyframes card-in {

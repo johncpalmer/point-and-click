@@ -394,8 +394,21 @@
 
   function openObjectCard(obj) {
     state.pendingObject = obj;
+    el.objCard.classList.remove('inspect');
+    el.objLeave.textContent = 'LEAVE';
     el.objName.textContent = obj.name;
     el.objDesc.textContent = obj.description;
+    el.objCard.hidden = false;
+    IslandAudio.blip();
+  }
+
+  // Inspect an item already in the satchel: same card, read-only (no TAKE).
+  function openInventoryItem(item) {
+    state.pendingObject = null;
+    el.objCard.classList.add('inspect');
+    el.objLeave.textContent = 'CLOSE';
+    el.objName.textContent = item.name;
+    el.objDesc.textContent = item.description;
     el.objCard.hidden = false;
     IslandAudio.blip();
   }
@@ -430,6 +443,10 @@
       d.className = 'inv-item';
       d.dataset.name = `${item.name} — ${item.description}`;
       d.textContent = OBJECT_GLYPHS[i % OBJECT_GLYPHS.length];
+      d.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openInventoryItem(item);
+      });
       el.invItems.appendChild(d);
     });
   }
