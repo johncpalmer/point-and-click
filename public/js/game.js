@@ -18,9 +18,9 @@
     hotspots: $('hotspots'),
     navDots: $('nav-dots'),
     veil: $('veil'),
-    veilText: $('veil-text'),
+    veilWord: $('veil-word'),
+    veilLines: $('veil-lines'),
     sceneName: $('scene-name'),
-    sceneDesc: $('scene-desc'),
     depthPips: $('depth-pips'),
     ascend: $('ascend-btn'),
     toast: $('toast'),
@@ -59,12 +59,29 @@
 
   const OBJECT_GLYPHS = ['🗝', '🔮', '🐚', '🪶', '🧭', '📜', '🫙', '🪨', '🔔', '🕯'];
 
-  const VEIL_TEXTS = {
-    deeper: ['Drawing closer…', 'The mist parts…', 'Following the path down…', 'The island admits you…'],
-    lateral: ['Walking on…', 'Following the shoreline of this place…', 'Crossing over…'],
-    up: ['Pulling back…', 'The world widens…', 'Rising on the wind…'],
-    root: ['The sea remembers an island…', 'Far below, something waits…'],
+  const VEIL_WORDS = {
+    deeper: 'DESCENDING',
+    lateral: 'TRAVERSING',
+    up: 'ASCENDING',
+    root: 'LANDFALL',
   };
+
+  const VEIL_LINES = [
+    'SCANNING TERRAIN GEOMETRY',
+    'RESOLVING FEATURE UNDER CURSOR',
+    'CHARTING UNMAPPED SECTOR',
+    'SYNTHESIZING ATMOSPHERE',
+    'COMPOSITING PAINT LAYERS',
+    'CALIBRATING LIGHTFIELD',
+    'BINDING AMBIENT CHANNEL',
+    'INDEXING LANDMARKS',
+    'WAKING THE PAINTER',
+    'LISTENING FOR THE ISLAND',
+    'PLOTTING ROUTE',
+    'DEVELOPING PLATES',
+    'READING THE TIDE LEDGER',
+    'ALIGNING HORIZON',
+  ];
 
   // ------------------------------------------------------------------ API
 
@@ -90,19 +107,35 @@
 
   let veilTimer = null;
 
-  function veilOn(direction) {
-    const texts = VEIL_TEXTS[direction] || VEIL_TEXTS.deeper;
-    let i = Math.floor(Math.random() * texts.length);
-    el.veilText.textContent = texts[i];
-    el.veil.classList.add('on');
+  function addVeilLine(text) {
+    const d = document.createElement('div');
+    d.textContent = text;
+    el.veilLines.appendChild(d);
+    while (el.veilLines.children.length > 5) el.veilLines.firstChild.remove();
+  }
+
+  // expedition telemetry: rotating reticle, direction word, mono readout lines.
+  // `fix` (optional) is the normalized click coordinate that started the travel.
+  function veilOn(direction, fix) {
+    el.veilWord.textContent = VEIL_WORDS[direction] || VEIL_WORDS.deeper;
+    if (el.veil.classList.contains('on')) return; // already running — just retitle
+    el.veilLines.innerHTML = '';
+    if (fix) addVeilLine(`FIX ${fix.x.toFixed(3)} · ${fix.y.toFixed(3)}`);
+    const pool = [...VEIL_LINES].sort(() => Math.random() - 0.5);
+    let i = 0;
+    addVeilLine(pool[i++]);
     veilTimer = setInterval(() => {
-      i = (i + 1) % texts.length;
-      el.veilText.textContent = texts[i];
-    }, 2600);
+      const tag = Math.random() < 0.4
+        ? ` · ${Math.floor(Math.random() * 0xffff).toString(16).padStart(4, '0').toUpperCase()}`
+        : '…';
+      addVeilLine(pool[i++ % pool.length] + tag);
+    }, 1500);
+    el.veil.classList.add('on');
   }
 
   function veilOff() {
     clearInterval(veilTimer);
+    veilTimer = null;
     el.veil.classList.remove('on');
   }
 
@@ -132,10 +165,6 @@
 
     state.scene = scene;
     el.sceneName.textContent = scene.name;
-    el.sceneDesc.textContent = scene.desc;
-    el.sceneDesc.classList.remove('showing');
-    setTimeout(() => el.sceneDesc.classList.add('showing'), 250);
-    setTimeout(() => el.sceneDesc.classList.remove('showing'), 9000);
 
     // depth pips
     el.depthPips.innerHTML = '';
@@ -293,7 +322,7 @@
     state.busy = true;
     hideLabel();
     el.cursor.classList.remove('hot');
-    const slowReveal = setTimeout(() => veilOn('deeper'), 550);
+    const slowReveal = setTimeout(() => veilOn('deeper', { x, y }), 550);
 
     try {
       const out = await api('/api/click', {
@@ -306,19 +335,20 @@
         clearTimeout(slowReveal);
         veilOff();
         IslandAudio.denied();
-        toast(out.message || 'Nothing draws you there.');
+        // prefer the server's blocked flavor line; fall back to terse system copy
+        toast(out.message || 'NO ROUTE');
         return;
       }
 
       clearTimeout(slowReveal);
-      veilOn(out.direction);
+      veilOn(out.direction, { x, y });
       IslandAudio.whoosh(out.direction === 'up');
       await showScene(out.scene, { direction: out.direction });
     } catch (err) {
       clearTimeout(slowReveal);
       veilOff();
       IslandAudio.denied();
-      toast('The way blurs for a moment. Try again.');
+      toast('SIGNAL LOST — TRY AGAIN');
       console.error(err);
     } finally {
       state.busy = false;
@@ -386,7 +416,7 @@
       renderInventory();
       closeObjectCard();
       IslandAudio.pickup();
-      toast(`The ${obj.name} settles into your satchel.`);
+      toast(`${obj.name.toUpperCase()} → SATCHEL`);
     } catch (err) {
       toast('It will not come free just now.');
       console.error(err);
@@ -548,7 +578,7 @@
   async function begin() {
     IslandAudio.begin();
     el.begin.disabled = true;
-    el.begin.textContent = 'the sea rises…';
+    el.begin.textContent = 'ESTABLISHING LINK…';
     try {
       const [rootOut, stateOut] = await Promise.all([
         api('/api/root', {}),
@@ -569,7 +599,7 @@
       await showScene(rootOut.scene, { direction: 'root' });
     } catch (err) {
       el.begin.disabled = false;
-      el.begin.textContent = 'Begin';
+      el.begin.textContent = 'BEGIN';
       alert(`The island could not be reached: ${err.message}`);
     }
   }
@@ -578,8 +608,8 @@
     .then((r) => r.json())
     .then((s) => {
       el.titleMode.textContent = s.live
-        ? 'live world generation · openrouter'
-        : 'mock mode — set OPENROUTER_API_KEY in .env for live AI generation';
+        ? 'LIVE WORLD GENERATION · OPENROUTER'
+        : 'MOCK MODE — SET OPENROUTER_API_KEY IN .ENV FOR LIVE GENERATION';
     })
     .catch(() => {});
 

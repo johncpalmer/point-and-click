@@ -5,15 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ISLAND</title>
   <link rel="stylesheet" href="/css/style.css" />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='42' fill='%231b4e6b'/%3E%3Ccircle cx='50' cy='50' r='20' fill='%23b8a04a'/%3E%3C/svg%3E" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='8' y='8' width='84' height='84' fill='none' stroke='%23ff8a2a' stroke-width='8'/%3E%3Ccircle cx='50' cy='50' r='18' fill='%235fd8ff'/%3E%3C/svg%3E" />
 </head>
 <body>
   <!-- Title screen -->
   <div id="title-screen">
-    <div class="title-rings"></div>
+    <div class="title-frame"></div>
+    <p class="title-over">EXPEDITION // UNCHARTED SEA</p>
     <h1 class="title-word">ISLAND</h1>
     <p class="title-sub">The island of Cadence is still listening.</p>
-    <button id="begin-btn">Begin</button>
+    <button id="begin-btn">BEGIN</button>
     <p class="title-mode" id="title-mode"></p>
   </div>
 
@@ -31,33 +32,44 @@
 
       <!-- transition veil -->
       <div id="veil">
-        <div class="veil-rings"><i></i><i></i><i></i></div>
-        <p id="veil-text"></p>
+        <div class="veil-reticle"><i></i><i></i><b></b></div>
+        <div id="veil-word"></div>
+        <div id="veil-lines"></div>
       </div>
 
       <!-- HUD -->
       <header id="hud">
         <div id="hud-left">
-          <h2 id="scene-name"></h2>
-          <div id="depth-pips"></div>
+          <div id="scene-plate">
+            <span class="plate-tag">LOC</span>
+            <h2 id="scene-name"></h2>
+          </div>
+          <div id="depth-meter">
+            <span class="meter-label">DEPTH</span>
+            <div id="depth-pips"></div>
+          </div>
         </div>
-        <button id="ascend-btn" title="Return to the wider view">▲ ascend</button>
+        <button id="ascend-btn" title="Return to the wider view">▲ ASCEND</button>
       </header>
 
-      <p id="scene-desc"></p>
       <p id="toast" hidden></p>
 
       <!-- Inventory -->
       <div id="inventory">
-        <span class="inv-label">satchel</span>
+        <span class="inv-label">SATCHEL</span>
         <div id="inv-items"></div>
       </div>
 
       <!-- Journal -->
-      <button id="journal-btn" title="Fragments of the Answering">◈ journal <span id="journal-count">0/0</span></button>
+      <button id="journal-btn" title="Fragments of the Answering">
+        <span class="plate-tag cyan">LOG</span>
+        <span class="journal-btn-label">JOURNAL</span>
+        <span id="journal-count">0/0</span>
+      </button>
 
-      <div id="journal" hidden>
-        <div id="journal-head">
+      <div id="journal" class="panel panel-journal" hidden>
+        <div id="journal-head" class="panel-head">
+          <span class="plate-tag cyan">LOG</span>
           <span>Fragments of the Answering</span>
           <button id="journal-close" title="Close">✕</button>
         </div>
@@ -65,20 +77,24 @@
       </div>
 
       <!-- Object pickup card -->
-      <div id="object-card" hidden>
-        <h3 id="obj-name"></h3>
+      <div id="object-card" class="panel panel-obj" hidden>
+        <div class="panel-head">
+          <span class="plate-tag gold">OBJ</span>
+          <h3 id="obj-name"></h3>
+        </div>
         <p id="obj-desc"></p>
         <div class="card-actions">
-          <button id="obj-take">Take it</button>
-          <button id="obj-leave">Leave it</button>
+          <button id="obj-take">TAKE</button>
+          <button id="obj-leave">LEAVE</button>
         </div>
       </div>
 
       <!-- Character chat -->
-      <div id="chat" hidden>
+      <div id="chat" class="panel panel-chat" hidden>
         <div id="chat-head">
+          <span class="plate-tag cyan">COMMS</span>
           <span id="chat-name"></span>
-          <button id="chat-close" title="Walk away">walk away</button>
+          <button id="chat-close" title="Walk away">WALK AWAY</button>
         </div>
         <div id="chat-log"></div>
         <form id="chat-form">
