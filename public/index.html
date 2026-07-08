@@ -49,15 +49,32 @@
             <div id="depth-pips"></div>
           </div>
         </div>
-        <button id="ascend-btn" title="Return to the wider view">▲ ASCEND</button>
+        <div id="hud-right">
+          <button id="scan-btn" title="Reveal the routes out">◎ SCAN</button>
+          <button id="ascend-btn" title="Return to the wider view">▲ ASCEND</button>
+        </div>
       </header>
 
       <p id="toast" hidden></p>
 
-      <!-- Inventory -->
-      <div id="inventory">
-        <span class="inv-label">SATCHEL</span>
-        <div id="inv-items"></div>
+      <!-- scan route pins -->
+      <div id="scan-pins"></div>
+
+      <!-- Satchel button -->
+      <button id="inventory-btn" title="Small things worth keeping">
+        <span class="plate-tag gold">BAG</span>
+        <span class="inv-btn-label">SATCHEL</span>
+        <span id="inv-count">0</span>
+      </button>
+
+      <!-- Satchel panel -->
+      <div id="satchel" class="panel panel-satchel" hidden>
+        <div class="panel-head">
+          <span class="plate-tag gold">BAG</span>
+          <span>Satchel</span>
+          <button id="satchel-close" title="Close">✕</button>
+        </div>
+        <div id="satchel-list"></div>
       </div>
 
       <!-- Journal -->
@@ -101,6 +118,35 @@
           <input id="chat-input" autocomplete="off" maxlength="240" placeholder="Say something…" />
           <button type="submit">›</button>
         </form>
+      </div>
+
+      <!-- Oracle (debug) -->
+      <div id="oracle" class="panel panel-oracle" hidden>
+        <div id="oracle-head">
+          <span class="plate-tag violet">DBG</span>
+          <span id="oracle-title">ORACLE // DEBUG</span>
+          <button id="oracle-close" title="Close">✕</button>
+        </div>
+        <div id="oracle-log"></div>
+        <form id="oracle-form">
+          <input id="oracle-input" autocomplete="off" maxlength="240" placeholder="Ask the oracle…" />
+          <button type="submit">›</button>
+        </form>
+      </div>
+
+      <!-- Admin cluster (debug) -->
+      <div id="admin-bar">
+        <button id="admin-save" title="Save progress locally">SAVE</button>
+        <button id="admin-oracle" title="Ask the debug oracle">ORACLE</button>
+        <button id="admin-reset" title="Erase all progress">RESET</button>
+      </div>
+
+      <!-- Ending overlay -->
+      <div id="ending" hidden>
+        <p class="ending-over">THE ANSWERING // COMPLETE</p>
+        <h2 id="ending-title"></h2>
+        <p id="ending-text"></p>
+        <button id="ending-close">KEEP EXPLORING</button>
       </div>
     </div>
   </div>

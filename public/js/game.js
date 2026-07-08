@@ -27,7 +27,13 @@
     ripple: $('ripple'),
     cursor: $('cursor-ring'),
     cursorLabel: $('cursor-label'),
-    invItems: $('inv-items'),
+    scan: $('scan-btn'),
+    scanPins: $('scan-pins'),
+    inventoryBtn: $('inventory-btn'),
+    invCount: $('inv-count'),
+    satchel: $('satchel'),
+    satchelList: $('satchel-list'),
+    satchelClose: $('satchel-close'),
     objCard: $('object-card'),
     objName: $('obj-name'),
     objDesc: $('obj-desc'),
@@ -44,6 +50,18 @@
     journal: $('journal'),
     journalList: $('journal-list'),
     journalClose: $('journal-close'),
+    ending: $('ending'),
+    endingTitle: $('ending-title'),
+    endingText: $('ending-text'),
+    endingClose: $('ending-close'),
+    oracle: $('oracle'),
+    oracleLog: $('oracle-log'),
+    oracleForm: $('oracle-form'),
+    oracleInput: $('oracle-input'),
+    oracleClose: $('oracle-close'),
+    adminSave: $('admin-save'),
+    adminOracle: $('admin-oracle'),
+    adminReset: $('admin-reset'),
   };
 
   const state = {
@@ -177,29 +195,49 @@
 
     renderHotspots(scene);
     renderNavDots(scene);
+    el.scanPins.innerHTML = '';
+    clearTimeout(scanTimer);
     closeChat(true);
     closeObjectCard();
+    closeSatchel();
     hideLabel();
     el.cursor.classList.remove('hot');
 
     IslandAudio.setAmbience(scene.ambience);
     IslandAudio.chime();
     veilOff();
+
+    // dead-end rescue: nowhere to go, nothing to touch — nudge the player up
+    const noRoutes = !(scene.navPoints && scene.navPoints.length);
+    if (noRoutes && !scene.character && !(scene.objects && scene.objects.length) && !scene.interactable) {
+      toast('DEAD END — ASCEND TO RETURN.');
+    }
   }
 
   function renderHotspots(scene) {
     el.hotspots.innerHTML = '';
     const stageW = el.stage.clientWidth;
+    const stageH = el.stage.clientHeight;
 
     function spot(kind, hs, title, onClick) {
       if (!hs) return;
       const d = document.createElement('div');
       d.className = `hotspot ${kind}`;
-      const size = Math.max(hs.radius * 2 * stageW, 56);
-      d.style.width = `${size}px`;
-      d.style.height = `${size}px`;
-      d.style.left = `${hs.x * 100}%`;
-      d.style.top = `${hs.y * 100}%`;
+      if (hs.box) {
+        // fit an ellipse to the tight bounding box (min 44px so tiny things stay clickable)
+        const w = Math.max((hs.box.x1 - hs.box.x0) * stageW, 44);
+        const h = Math.max((hs.box.y1 - hs.box.y0) * stageH, 44);
+        d.style.width = `${w}px`;
+        d.style.height = `${h}px`;
+        d.style.left = `${((hs.box.x0 + hs.box.x1) / 2) * 100}%`;
+        d.style.top = `${((hs.box.y0 + hs.box.y1) / 2) * 100}%`;
+      } else {
+        const size = Math.max(hs.radius * 2 * stageW, 56);
+        d.style.width = `${size}px`;
+        d.style.height = `${size}px`;
+        d.style.left = `${hs.x * 100}%`;
+        d.style.top = `${hs.y * 100}%`;
+      }
       d.title = '';
       d.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -222,6 +260,9 @@
     }
     for (const obj of scene.objects || []) {
       spot('object', obj.hotspot, obj.name, () => openObjectCard(obj));
+    }
+    if (scene.interactable) {
+      spot('use', scene.interactable.hotspot, scene.interactable.name, () => useInteractable(scene));
     }
   }
 
@@ -250,7 +291,8 @@
   }
 
   function panelsOpen() {
-    return !el.chat.hidden || !el.objCard.hidden || !el.journal.hidden;
+    return !el.chat.hidden || !el.objCard.hidden || !el.journal.hidden ||
+      !el.satchel.hidden || !el.oracle.hidden || !el.ending.hidden;
   }
 
   function updateHover(nx, ny) {
@@ -267,16 +309,33 @@
       return;
     }
 
+    // bbox-first: if the cursor sits inside one or more navPoint boxes, the
+    // smallest-area box wins (so a steeple beats the lake painted behind it).
     let found = null;
+    let bestArea = Infinity;
     for (const np of scene.navPoints || []) {
-      let dx = nx - np.x;
-      const dy = ny - np.y;
-      dx *= 1.6; // scale x by stage aspect so distance feels circular
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const threshold = Math.max(np.radius * 1.7, 0.09);
-      if (dist <= threshold) {
-        found = np;
-        break;
+      const b = np.box;
+      if (b && nx >= b.x0 && nx <= b.x1 && ny >= b.y0 && ny <= b.y1) {
+        const area = (b.x1 - b.x0) * (b.y1 - b.y0);
+        if (area < bestArea) {
+          bestArea = area;
+          found = np;
+        }
+      }
+    }
+
+    // fall back to nearest-center-within-threshold when no box contains the cursor
+    if (!found) {
+      for (const np of scene.navPoints || []) {
+        let dx = nx - np.x;
+        const dy = ny - np.y;
+        dx *= 1.6; // scale x by stage aspect so distance feels circular
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const threshold = Math.max(np.radius * 1.7, 0.09);
+        if (dist <= threshold) {
+          found = np;
+          break;
+        }
       }
     }
 
@@ -402,15 +461,20 @@
     IslandAudio.blip();
   }
 
-  // Inspect an item already in the satchel: same card, read-only (no TAKE).
-  function openInventoryItem(item) {
+  // Read-only object card (no TAKE): satchel inspection + interactable results.
+  function showReadOnlyCard(title, text) {
     state.pendingObject = null;
     el.objCard.classList.add('inspect');
     el.objLeave.textContent = 'CLOSE';
-    el.objName.textContent = item.name;
-    el.objDesc.textContent = item.description;
+    el.objName.textContent = title;
+    el.objDesc.textContent = text;
     el.objCard.hidden = false;
     IslandAudio.blip();
+  }
+
+  // Inspect an item already in the satchel: same card, read-only (no TAKE).
+  function openInventoryItem(item) {
+    showReadOnlyCard(item.name, item.description);
   }
 
   function closeObjectCard() {
@@ -437,18 +501,175 @@
   }
 
   function renderInventory() {
-    el.invItems.innerHTML = '';
-    state.inventory.forEach((item, i) => {
+    el.invCount.textContent = String(state.inventory.length);
+    el.satchelList.innerHTML = '';
+
+    if (!state.inventory.length) {
       const d = document.createElement('div');
-      d.className = 'inv-item';
-      d.dataset.name = `${item.name} — ${item.description}`;
-      d.textContent = OBJECT_GLYPHS[i % OBJECT_GLYPHS.length];
-      d.addEventListener('click', (e) => {
+      d.className = 'satchel-empty';
+      d.textContent = 'EMPTY — small things worth keeping glint gold, deep in the island.';
+      el.satchelList.appendChild(d);
+      return;
+    }
+
+    state.inventory.forEach((item, i) => {
+      const row = document.createElement('div');
+      row.className = 'satchel-item';
+      const g = document.createElement('span');
+      g.className = 'satchel-glyph';
+      g.textContent = OBJECT_GLYPHS[i % OBJECT_GLYPHS.length];
+      const name = document.createElement('span');
+      name.className = 'satchel-name';
+      name.textContent = item.name;
+      const desc = document.createElement('span');
+      desc.className = 'satchel-desc';
+      desc.textContent = item.description;
+      row.appendChild(g);
+      row.appendChild(name);
+      row.appendChild(desc);
+      row.addEventListener('click', (e) => {
         e.stopPropagation();
         openInventoryItem(item);
       });
-      el.invItems.appendChild(d);
+      el.satchelList.appendChild(row);
     });
+  }
+
+  function openSatchel() {
+    el.satchel.hidden = false;
+    IslandAudio.blip();
+  }
+
+  function closeSatchel() {
+    el.satchel.hidden = true;
+  }
+
+  // ------------------------------------------------------------------ interactable / ending
+
+  async function useInteractable(node) {
+    if (state.busy || !node) return;
+    try {
+      const out = await api('/api/interact', { nodeId: node.id });
+      if (out.ending) {
+        showEnding(out.title, out.text);
+      } else {
+        showReadOnlyCard(out.title, out.text);
+      }
+    } catch (err) {
+      toast('It does not answer, not yet.');
+      console.error(err);
+    }
+  }
+
+  function showEnding(title, text) {
+    el.endingTitle.textContent = title || '';
+    el.endingText.textContent = text || '';
+    el.ending.hidden = false;
+    // let [hidden] release before adding .on so the ~1.2s opacity fade runs
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => el.ending.classList.add('on'))
+    );
+    IslandAudio.chime();
+    setTimeout(() => IslandAudio.chime(), 1000);
+  }
+
+  function closeEnding() {
+    el.ending.classList.remove('on');
+    el.ending.hidden = true;
+  }
+
+  // ------------------------------------------------------------------ scan (route discovery)
+
+  let scanTimer = null;
+
+  function scan() {
+    if (!state.scene || state.busy || panelsOpen()) return;
+    const scene = state.scene;
+    IslandAudio.blip();
+    renderNavDots(scene); // re-play the arrival pulse
+
+    el.scanPins.innerHTML = '';
+    for (const np of scene.navPoints || []) {
+      const pin = document.createElement('div');
+      pin.className = 'scan-pin';
+      pin.textContent = (np.kind === 'deeper' ? '▾ ' : '▸ ') + np.name;
+      pin.style.left = `${np.x * 100}%`;
+      pin.style.top = `${np.y * 100}%`;
+      el.scanPins.appendChild(pin);
+    }
+    if (scene.parentId) {
+      const pin = document.createElement('div');
+      pin.className = 'scan-pin ascend';
+      pin.textContent = '▴ ASCEND';
+      pin.style.left = '50%';
+      pin.style.top = '4%';
+      el.scanPins.appendChild(pin);
+    }
+
+    clearTimeout(scanTimer);
+    scanTimer = setTimeout(() => { el.scanPins.innerHTML = ''; }, 3000);
+  }
+
+  // ------------------------------------------------------------------ admin / oracle (debug)
+
+  async function adminSave() {
+    try {
+      const out = await apiGet('/api/admin/export');
+      localStorage.setItem('island.save', JSON.stringify(out.state));
+      toast('PROGRESS SAVED (LOCAL)');
+    } catch (err) {
+      toast('SAVE FAILED');
+      console.error(err);
+    }
+  }
+
+  async function adminReset() {
+    if (!confirm('Erase all progress and start over?')) return;
+    try {
+      await api('/api/admin/reset', {});
+    } catch (err) {
+      console.error(err);
+    }
+    localStorage.removeItem('island.save');
+    location.reload();
+  }
+
+  function addOracleMsg(kind, text) {
+    const p = document.createElement('p');
+    p.className = `omsg ${kind}`;
+    p.textContent = text;
+    el.oracleLog.appendChild(p);
+    el.oracleLog.scrollTop = el.oracleLog.scrollHeight;
+  }
+
+  async function askOracle(message) {
+    try {
+      const out = await api('/api/admin/oracle', { message });
+      addOracleMsg('reply', out.reply || '(no reply)');
+    } catch (err) {
+      addOracleMsg('reply', 'ORACLE UNREACHABLE');
+      console.error(err);
+    }
+  }
+
+  function openOracle() {
+    el.oracle.hidden = false;
+    IslandAudio.blip();
+    askOracle('Where am I and what should I do next?');
+    el.oracleInput.focus();
+  }
+
+  function closeOracle() {
+    el.oracle.hidden = true;
+  }
+
+  function sendOracle(e) {
+    e.preventDefault();
+    const text = el.oracleInput.value.trim();
+    if (!text) return;
+    el.oracleInput.value = '';
+    addOracleMsg('you', text);
+    askOracle(text);
   }
 
   // ------------------------------------------------------------------ journal
@@ -597,10 +818,25 @@
     el.begin.disabled = true;
     el.begin.textContent = 'ESTABLISHING LINK…';
     try {
-      const [rootOut, stateOut] = await Promise.all([
-        api('/api/root', {}),
-        apiGet('/api/state'),
-      ]);
+      let stateOut = await apiGet('/api/state');
+
+      // auto-restore: fresh server + a local save present → push the save back
+      const empty = !(stateOut.inventory && stateOut.inventory.length)
+        && !(stateOut.journal && stateOut.journal.length)
+        && (!stateOut.visited || stateOut.visited.length <= 1);
+      const saved = localStorage.getItem('island.save');
+      let restored = false;
+      if (empty && saved) {
+        try {
+          await api('/api/admin/import', { state: JSON.parse(saved) });
+          stateOut = await apiGet('/api/state');
+          restored = true;
+        } catch (err) {
+          console.error(err);
+        }
+      }
+
+      const rootOut = await api('/api/root', {});
       state.inventory = stateOut.inventory || [];
       state.journal = stateOut.journal || [];
       state.cluesTotal = stateOut.cluesTotal || 0;
@@ -612,6 +848,7 @@
       el.game.hidden = false;
       renderInventory();
       renderJournal();
+      if (restored) toast('PROGRESS RESTORED');
       IslandAudio.whoosh(false);
       await showScene(rootOut.scene, { direction: 'root' });
     } catch (err) {
@@ -637,6 +874,10 @@
     e.stopPropagation();
     ascend();
   });
+  el.scan.addEventListener('click', (e) => {
+    e.stopPropagation();
+    scan();
+  });
   el.objTake.addEventListener('click', (e) => {
     e.stopPropagation();
     takeObject();
@@ -658,11 +899,46 @@
     closeJournal();
   });
   el.journal.addEventListener('click', (e) => e.stopPropagation());
+
+  // satchel
+  el.inventoryBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openSatchel();
+  });
+  el.satchelClose.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeSatchel();
+  });
+  el.satchel.addEventListener('click', (e) => e.stopPropagation());
+
+  // ending overlay
+  el.endingClose.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeEnding();
+  });
+
+  // admin / oracle
+  el.adminSave.addEventListener('click', (e) => { e.stopPropagation(); adminSave(); });
+  el.adminReset.addEventListener('click', (e) => { e.stopPropagation(); adminReset(); });
+  el.adminOracle.addEventListener('click', (e) => { e.stopPropagation(); openOracle(); });
+  el.oracleForm.addEventListener('submit', sendOracle);
+  el.oracleClose.addEventListener('click', (e) => { e.stopPropagation(); closeOracle(); });
+  el.oracle.addEventListener('click', (e) => e.stopPropagation());
+
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       closeObjectCard();
       closeChat();
       closeJournal();
+      closeSatchel();
+      closeOracle();
+      closeEnding();
+    } else if ((e.key === 's' || e.key === 'S') && !panelsOpen()) {
+      // scan — only when no panel is open and we're not typing in a field
+      const tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (el.game.hidden) return;
+      scan();
     }
   });
 })();

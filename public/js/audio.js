@@ -329,6 +329,7 @@ const IslandAudio = (() => {
     o.connect(g).connect(master);
     o.start(t);
     o.stop(t + 0.08);
+    musicDuck();
   }
 
   function denied() {
@@ -346,10 +347,256 @@ const IslandAudio = (() => {
     o.stop(t + 0.35);
   }
 
+  // ---------------- generative theme music ----------------
+  // A quiet "Life Sim"-flavoured bed of music that lives UNDER the ambience:
+  // glassy detuned-saw pad, FM bell arps through a ping-pong delay, a round
+  // sub, and occasional sparkles. 76 BPM, key of A major, an 8-bar loop of
+  // four 2-bar chords: Amaj9 -> F#m11 -> Dmaj9 -> Esus4(add9).
+
+  const M_TEMPO = 76;
+  const M_BEAT = 60 / M_TEMPO;       // 0.78947 s
+  const M_8TH = M_BEAT / 2;          // 0.39474 s (scheduler grid)
+  const M_BAR = M_BEAT * 4;          // 3.15789 s
+  const M_CHORD = M_BAR * 2;         // 6.31579 s (2 bars per chord)
+  const M_LOOP_STEPS = 64;           // 8 bars * 8 eighth-notes
+  const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
+
+  // MIDI note numbers. pad = sustained voices, sub = round bass root,
+  // arp = pentatonic-safe pool the pluck draws from.
+  const PROG = [
+    { // Amaj9 :  A3 E4 G#4 B4  /  A2  /  A4 C#5 E5 F#5 A5
+      pad: [57, 64, 68, 71], sub: 45, arp: [69, 73, 76, 78, 81] },
+    { // F#m11 : F#3 C#4 E4 A4  /  F#2 /  F#4 A4 B4 C#5 E5
+      pad: [54, 61, 64, 69], sub: 42, arp: [66, 69, 71, 73, 76] },
+    { // Dmaj9 :  D3 A3 C#4 F#4 /  D2  /  D5 E5 F#5 A5 C#6
+      pad: [50, 57, 61, 66], sub: 38, arp: [74, 76, 78, 81, 85] },
+    { // Esus4(add9) : E3 A3 B3 F#4 / E2 / E5 F#5 A5 B5 C#6
+      pad: [52, 57, 59, 66], sub: 40, arp: [76, 78, 81, 83, 85] },
+  ];
+
+  let musicRunning = false;
+  let musicBus = null, duckGain = null;
+  let padFilter = null, padGain = null, subGain = null;
+  let arpGain = null, arpSend = null, wetGain = null;
+  let delayL = null, delayR = null, mLfo = null;
+  let schedulerTimer = null, sparkleAlive = false;
+  let nextStepTime = 0, mStep = 0;
+  let restProb = 0.35, currentChord = PROG[0];
+
+  // glassy sustained pad: two slightly detuned saws per chord tone.
+  function padChord(chord, t) {
+    const dur = M_CHORD;
+    chord.pad.forEach((m) => {
+      const f = mtof(m);
+      [-7, 7].forEach((cents) => {
+        const o = ctx.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.value = f;
+        o.detune.value = cents;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(0.045, t + 2.2);   // long attack
+        g.gain.setValueAtTime(0.045, t + dur - 0.3);       // hold
+        g.gain.linearRampToValueAtTime(0.0001, t + dur + 1.8); // long release, overlaps next chord
+        o.connect(g).connect(padFilter);
+        o.start(t);
+        o.stop(t + dur + 2);
+      });
+    });
+  }
+
+  // soft round sub sine on the chord root.
+  function subNote(chord, t) {
+    const dur = M_CHORD;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = mtof(chord.sub);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.25, t + 1.4);
+    g.gain.setValueAtTime(0.25, t + dur - 0.5);
+    g.gain.linearRampToValueAtTime(0.0001, t + dur + 0.8);
+    o.connect(g).connect(subGain);
+    o.start(t);
+    o.stop(t + dur + 1);
+  }
+
+  // FM-ish bell pluck: sine carrier, sine modulator with fast-decaying index.
+  function pluck(freq, t, vel, decay) {
+    decay = decay || 0.45;
+    const car = ctx.createOscillator();
+    car.type = 'sine';
+    car.frequency.value = freq;
+    const mod = ctx.createOscillator();
+    mod.type = 'sine';
+    mod.frequency.value = freq * 2;               // bell-ish 2:1 ratio
+    const modDepth = ctx.createGain();
+    modDepth.gain.setValueAtTime(freq * 2.5, t);  // bright transient
+    modDepth.gain.exponentialRampToValueAtTime(freq * 0.05, t + decay);
+    mod.connect(modDepth).connect(car.frequency);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vel, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + decay);
+    car.connect(g);
+    g.connect(arpGain);   // dry
+    g.connect(arpSend);   // into ping-pong delay
+    car.start(t); mod.start(t);
+    car.stop(t + decay + 0.05);
+    mod.stop(t + decay + 0.05);
+  }
+
+  // adjust density + pad brightness to match the room. Applied on bar lines,
+  // eased in (setTargetAtTime) so it is never an abrupt jump.
+  function applyVariation(t) {
+    const kind = current && current.kind;
+    let base = 1200, rest = 0.35;
+    if (kind === 'cavern' || kind === 'interior') { base = 780; rest = 0.55; } // sparser, darker
+    else if (kind === 'hum') { base = 1000; rest = 0.62; }                     // half-density, pad+sub carry
+    restProb = rest;
+    if (padFilter) {
+      padFilter.frequency.cancelScheduledValues(t);
+      padFilter.frequency.setTargetAtTime(base, t, 2.5); // intrinsic base; LFO adds on top
+    }
+  }
+
+  function scheduleStep(s, t) {
+    currentChord = PROG[Math.floor(s / 16)];
+    if (s % 8 === 0) applyVariation(t);                       // bar boundary
+    if (s % 16 === 0) { padChord(currentChord, t); subNote(currentChord, t); } // chord boundary
+    if (Math.random() > restProb) {                          // ~35%+ rests -> it breathes
+      let m = currentChord.arp[Math.floor(Math.random() * currentChord.arp.length)];
+      if (Math.random() < 0.14) m += 12;                     // occasional octave jump
+      pluck(mtof(m), t, 0.06 + Math.random() * 0.04);
+    }
+  }
+
+  // lookahead scheduler (same setTimeout + AudioContext.currentTime pattern
+  // the beds use). nextStepTime advances by a fixed increment so it never drifts.
+  function scheduler() {
+    while (nextStepTime < ctx.currentTime + 0.12) {
+      scheduleStep(mStep, nextStepTime);
+      nextStepTime += M_8TH;
+      mStep = (mStep + 1) % M_LOOP_STEPS;
+    }
+    schedulerTimer = setTimeout(scheduler, 25);
+  }
+
+  function startSparkle() {
+    sparkleAlive = true;
+    (function spark() {
+      if (!sparkleAlive) return;
+      const chord = currentChord || PROG[0];
+      const m = chord.arp[Math.floor(Math.random() * chord.arp.length)] + 24; // 2 octaves up
+      pluck(mtof(m), ctx.currentTime + 0.05, 0.04 + Math.random() * 0.02, 1.6); // long tail via delay
+      setTimeout(spark, 4000 + Math.random() * 6000); // every 4-10s
+    })();
+  }
+
+  function musicStart() {
+    ensure();
+    if (musicRunning) return; // idempotent
+    musicRunning = true;
+    const now = ctx.currentTime;
+
+    // bus: musicBus (quiet) -> duckGain -> master. duckGain is separate so
+    // dialogue ducking never fights the stop fade on musicBus.
+    duckGain = ctx.createGain();
+    duckGain.gain.value = 1;
+    duckGain.connect(master);
+    musicBus = ctx.createGain();
+    musicBus.gain.value = 0.11; // sits clearly under the ambient beds
+    musicBus.connect(duckGain);
+
+    // pad chain + slow filter sweep
+    padGain = ctx.createGain();
+    padGain.gain.value = 0.5;
+    padFilter = ctx.createBiquadFilter();
+    padFilter.type = 'lowpass';
+    padFilter.frequency.value = 1200;
+    padFilter.Q.value = 0.7;
+    padFilter.connect(padGain).connect(musicBus);
+    mLfo = ctx.createOscillator();
+    mLfo.type = 'sine';
+    mLfo.frequency.value = 1 / 30; // one sweep per ~30s
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = 400;      // +/-400 Hz around the base cutoff
+    mLfo.connect(lfoGain).connect(padFilter.frequency);
+    mLfo.start(now);
+
+    // sub
+    subGain = ctx.createGain();
+    subGain.gain.value = 0.6;
+    subGain.connect(musicBus);
+
+    // arp dry + ping-pong feedback delay (0.375s, fb 0.35, low wet)
+    arpGain = ctx.createGain();
+    arpGain.gain.value = 0.5;
+    arpGain.connect(musicBus);
+    delayL = ctx.createDelay(1);
+    delayR = ctx.createDelay(1);
+    delayL.delayTime.value = 0.375;
+    delayR.delayTime.value = 0.375;
+    const fb = ctx.createGain();
+    fb.gain.value = 0.35;
+    const panL = ctx.createStereoPanner();
+    const panR = ctx.createStereoPanner();
+    panL.pan.value = -0.5;
+    panR.pan.value = 0.5;
+    wetGain = ctx.createGain();
+    wetGain.gain.value = 0.25;
+    delayL.connect(panL).connect(wetGain);
+    delayL.connect(delayR);
+    delayR.connect(panR).connect(wetGain);
+    delayR.connect(fb).connect(delayL);
+    wetGain.connect(musicBus);
+    arpSend = ctx.createGain();
+    arpSend.gain.value = 1;
+    arpSend.connect(delayL);
+
+    restProb = 0.35;
+    currentChord = PROG[0];
+    mStep = 0;
+    nextStepTime = now + 0.15;
+    scheduler();
+    startSparkle();
+  }
+
+  function musicStop() {
+    if (!musicRunning) return;
+    musicRunning = false;
+    sparkleAlive = false;
+    if (schedulerTimer) { clearTimeout(schedulerTimer); schedulerTimer = null; }
+    const t = ctx.currentTime;
+    if (musicBus) {
+      musicBus.gain.cancelScheduledValues(t);
+      musicBus.gain.setValueAtTime(musicBus.gain.value, t);
+      musicBus.gain.linearRampToValueAtTime(0, t + 1); // fade out over 1s
+    }
+    const toKill = [musicBus, duckGain, padFilter, padGain, subGain, arpGain, wetGain, delayL, delayR, arpSend];
+    const lfoRef = mLfo;
+    setTimeout(() => {
+      try { if (lfoRef) lfoRef.stop(); } catch (e) { /* already stopped */ }
+      toKill.forEach((n) => { try { if (n) n.disconnect(); } catch (e) { /* ignore */ } });
+    }, 1500); // after the fade + delay tails
+    musicBus = duckGain = padFilter = padGain = subGain = arpGain = wetGain = delayL = delayR = arpSend = mLfo = null;
+  }
+
+  // gentle -30% dip while dialogue blips fire; recovers quickly.
+  function musicDuck() {
+    if (!musicRunning || !duckGain) return;
+    const t = ctx.currentTime;
+    duckGain.gain.cancelScheduledValues(t);
+    duckGain.gain.setValueAtTime(duckGain.gain.value, t);
+    duckGain.gain.linearRampToValueAtTime(0.7, t + 0.05);
+    duckGain.gain.linearRampToValueAtTime(1.0, t + 0.4);
+  }
+
   function begin() {
     ensure();
     if (ctx.state === 'suspended') ctx.resume();
+    musicStart();
   }
 
-  return { begin, setAmbience, click, whoosh, chime, pickup, blip, denied };
+  return { begin, setAmbience, click, whoosh, chime, pickup, blip, denied, musicStart, musicStop };
 })();
