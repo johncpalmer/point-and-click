@@ -279,54 +279,102 @@ button {
   pointer-events: none;
 }
 
-/* zoom-into-the-click transitions: the outgoing (frozen) frame animates over
-   the already-swapped incoming frame. transform-origin is set inline to the
-   click point (--) so a DEEPER move pushes into whatever was clicked. */
-#scene-img-old.zoom-out-deeper {
-  animation: zoom-out-deeper 1.4s ease-in-out both;
+/* signal-resolve transitions: the outgoing frame holds still underneath while
+   the incoming plate DEVELOPS across it behind a glowing scan bar — downward
+   when descending, upward when ascending, from the clicked side when lateral.
+   The image sharpens from blur as the bar passes. Fits the telemetry fiction
+   (the veil literally says DEVELOPING PLATES). */
+
+#scene-img-old.resolve-under {
+  opacity: 1;
+  animation: resolve-under 1.1s ease-in both;
 }
 
-#scene-img-old.zoom-out-up {
-  transform-origin: 50% 50%;
-  animation: zoom-out-up 1.4s ease-in-out both;
+@keyframes resolve-under {
+  0%   { opacity: 1; filter: none; }
+  70%  { opacity: 1; filter: saturate(0.6) brightness(0.85); }
+  100% { opacity: 0; filter: saturate(0.4) brightness(0.7); }
 }
 
-#scene-img-old.zoom-out-lateral {
-  transform-origin: 50% 50%;
-  animation: zoom-out-lateral 1.4s ease-in-out both;
+#scene-img.resolve-down  { animation: resolve-down  1.1s cubic-bezier(0.3, 0, 0.2, 1) both; }
+#scene-img.resolve-up    { animation: resolve-up    1.1s cubic-bezier(0.3, 0, 0.2, 1) both; }
+#scene-img.resolve-left  { animation: resolve-left  1.1s cubic-bezier(0.3, 0, 0.2, 1) both; }
+#scene-img.resolve-right { animation: resolve-right 1.1s cubic-bezier(0.3, 0, 0.2, 1) both; }
+
+@keyframes resolve-down {
+  0%   { clip-path: inset(0 0 100% 0); filter: blur(7px) saturate(1.3); }
+  60%  { filter: blur(3px) saturate(1.15); }
+  100% { clip-path: inset(0 0 0 0); filter: blur(0) saturate(1); }
 }
 
-#scene-img.zoom-in-deeper {
-  animation: zoom-in-deeper 1.4s ease-out both;
+@keyframes resolve-up {
+  0%   { clip-path: inset(100% 0 0 0); filter: blur(7px) saturate(1.3); }
+  60%  { filter: blur(3px) saturate(1.15); }
+  100% { clip-path: inset(0 0 0 0); filter: blur(0) saturate(1); }
 }
 
-#scene-img.zoom-in-up {
-  animation: zoom-in-up 1.4s ease-out both;
+@keyframes resolve-right {
+  0%   { clip-path: inset(0 100% 0 0); filter: blur(7px) saturate(1.3); }
+  60%  { filter: blur(3px) saturate(1.15); }
+  100% { clip-path: inset(0 0 0 0); filter: blur(0) saturate(1); }
 }
 
-@keyframes zoom-out-deeper {
-  from { opacity: 1; transform: scale(1); }
-  to   { opacity: 0; transform: scale(1.5); }
+@keyframes resolve-left {
+  0%   { clip-path: inset(0 0 0 100%); filter: blur(7px) saturate(1.3); }
+  60%  { filter: blur(3px) saturate(1.15); }
+  100% { clip-path: inset(0 0 0 0); filter: blur(0) saturate(1); }
 }
 
-@keyframes zoom-out-up {
-  from { opacity: 1; transform: scale(1); }
-  to   { opacity: 0; transform: scale(0.8); }
+/* the scan bar that leads the reveal edge */
+#scan-bar {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 16;
+  background: linear-gradient(rgba(95, 216, 255, 0), rgba(95, 216, 255, 0.9), rgba(255, 255, 255, 0.95), rgba(95, 216, 255, 0));
+  box-shadow: 0 0 24px rgba(95, 216, 255, 0.6);
 }
 
-@keyframes zoom-out-lateral {
-  from { opacity: 1; transform: translateX(0); }
-  to   { opacity: 0; transform: translateX(var(--slide, 4%)); }
+#scan-bar.sweep-down, #scan-bar.sweep-up {
+  left: 0; right: 0; height: 3px;
 }
 
-@keyframes zoom-in-deeper {
-  from { transform: scale(1.04); }
-  to   { transform: scale(1); }
+#scan-bar.sweep-left, #scan-bar.sweep-right {
+  top: 0; bottom: 0; width: 3px;
+  background: linear-gradient(90deg, rgba(95, 216, 255, 0), rgba(95, 216, 255, 0.9), rgba(255, 255, 255, 0.95), rgba(95, 216, 255, 0));
 }
 
-@keyframes zoom-in-up {
-  from { transform: scale(1.02); }
-  to   { transform: scale(1); }
+#scan-bar.sweep-down  { animation: sweep-down  1.1s cubic-bezier(0.3, 0, 0.2, 1) both; }
+#scan-bar.sweep-up    { animation: sweep-up    1.1s cubic-bezier(0.3, 0, 0.2, 1) both; }
+#scan-bar.sweep-right { animation: sweep-right 1.1s cubic-bezier(0.3, 0, 0.2, 1) both; }
+#scan-bar.sweep-left  { animation: sweep-left  1.1s cubic-bezier(0.3, 0, 0.2, 1) both; }
+
+@keyframes sweep-down {
+  0%   { top: 0; opacity: 0; }
+  8%   { opacity: 1; }
+  92%  { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+@keyframes sweep-up {
+  0%   { top: 100%; opacity: 0; }
+  8%   { opacity: 1; }
+  92%  { opacity: 1; }
+  100% { top: 0; opacity: 0; }
+}
+
+@keyframes sweep-right {
+  0%   { left: 0; opacity: 0; }
+  8%   { opacity: 1; }
+  92%  { opacity: 1; }
+  100% { left: 100%; opacity: 0; }
+}
+
+@keyframes sweep-left {
+  0%   { left: 100%; opacity: 0; }
+  8%   { opacity: 1; }
+  92%  { opacity: 1; }
+  100% { left: 0; opacity: 0; }
 }
 
 #vignette {

@@ -173,44 +173,38 @@
     });
   }
 
-  // Zoom-into-the-click transition. Freezes the outgoing frame on the overlay
-  // img and animates it over the already-swapped incoming frame so travel feels
-  // physically continuous:
-  //   deeper  → push into the clicked point (origin = click), incoming settles in
-  //   up      → shrink toward center, incoming settles out
-  //   lateral → crossfade + a slight slide toward the clicked side
-  const OUT_CLASSES = ['zoom-out-deeper', 'zoom-out-up', 'zoom-out-lateral'];
-  const IN_CLASSES = ['zoom-in-deeper', 'zoom-in-up'];
+  // Signal-resolve transition. The outgoing frame holds still underneath while
+  // the incoming plate develops across it behind a glowing scan bar:
+  //   deeper  → sweeps downward (descending into the world)
+  //   up      → sweeps upward (rising back out)
+  //   lateral → sweeps in from the side that was clicked
+  const RESOLVE_CLASSES = ['resolve-down', 'resolve-up', 'resolve-left', 'resolve-right'];
+  const SWEEP_CLASSES = ['sweep-down', 'sweep-up', 'sweep-left', 'sweep-right'];
+  const scanBar = document.getElementById('scan-bar');
 
   function runTransition(direction, fix) {
     const out = el.imgOld;
     const inc = el.img;
 
-    // clear any prior transition state, then freeze the current frame
-    OUT_CLASSES.forEach((c) => out.classList.remove(c));
-    IN_CLASSES.forEach((c) => inc.classList.remove(c));
-    out.style.removeProperty('--slide');
-    out.style.removeProperty('transform-origin');
+    // clear any prior transition state, then freeze the current frame under
+    out.classList.remove('resolve-under');
+    RESOLVE_CLASSES.forEach((c) => inc.classList.remove(c));
+    SWEEP_CLASSES.forEach((c) => scanBar.classList.remove(c));
     out.src = inc.src;
 
     // reflow so re-added animation classes restart from the first keyframe
     void out.offsetWidth;
 
-    if (direction === 'up') {
-      out.classList.add('zoom-out-up');
-      inc.classList.add('zoom-in-up');
-    } else if (direction === 'deeper') {
-      const fx = fix ? fix.x : 0.5;
-      const fy = fix ? fix.y : 0.5;
-      out.style.transformOrigin = `${fx * 100}% ${fy * 100}%`;
-      out.classList.add('zoom-out-deeper');
-      inc.classList.add('zoom-in-deeper');
-    } else {
-      // lateral / root: plain crossfade, nudged toward the clicked side
-      const slide = fix && fix.x < 0.5 ? -4 : 4;
-      out.style.setProperty('--slide', `${slide}%`);
-      out.classList.add('zoom-out-lateral');
-    }
+    let dirWord;
+    if (direction === 'up') dirWord = 'up';
+    else if (direction === 'deeper') dirWord = 'down';
+    // lateral: the new place enters from the side that was clicked, so the
+    // sweep travels away from that edge (click left → reveal left-to-right)
+    else dirWord = fix && fix.x < 0.5 ? 'right' : 'left';
+
+    out.classList.add('resolve-under');
+    inc.classList.add(`resolve-${dirWord}`);
+    scanBar.classList.add(`sweep-${dirWord}`);
   }
 
   async function showScene(scene, { direction = 'deeper' } = {}) {
