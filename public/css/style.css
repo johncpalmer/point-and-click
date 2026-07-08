@@ -156,6 +156,70 @@ button {
   color: rgba(143, 161, 173, 0.6);
 }
 
+/* ---- painter (image model) picker ---- */
+#painter-pick {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+#painter-pick[hidden] { display: none; }
+
+.painter-label {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.28em;
+  color: var(--acc);
+}
+
+.painter-select-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+#painter-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  padding: 0.42rem 2rem 0.42rem 0.8rem;
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.25s, box-shadow 0.25s;
+}
+
+#painter-select:hover,
+#painter-select:focus {
+  border-color: var(--acc);
+  box-shadow: 0 0 14px rgba(255, 138, 42, 0.25);
+}
+
+#painter-select option { background: var(--bg1); color: var(--ink); }
+
+.painter-caret {
+  position: absolute;
+  right: 0.7rem;
+  pointer-events: none;
+  color: var(--acc);
+  font-size: 0.7rem;
+}
+
+.painter-status {
+  min-height: 0.85rem;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.2em;
+  color: var(--acc2);
+  text-align: center;
+  padding: 0 1rem;
+}
+
 /* ---------------------------------------------------------------- stage */
 
 #game {
@@ -212,11 +276,58 @@ button {
 
 #scene-img-old {
   opacity: 0;
-  transition: opacity 1.4s ease;
   pointer-events: none;
 }
 
-#scene-img-old.showing { opacity: 1; transition: none; }
+/* zoom-into-the-click transitions: the outgoing (frozen) frame animates over
+   the already-swapped incoming frame. transform-origin is set inline to the
+   click point (--) so a DEEPER move pushes into whatever was clicked. */
+#scene-img-old.zoom-out-deeper {
+  animation: zoom-out-deeper 1.4s ease-in-out both;
+}
+
+#scene-img-old.zoom-out-up {
+  transform-origin: 50% 50%;
+  animation: zoom-out-up 1.4s ease-in-out both;
+}
+
+#scene-img-old.zoom-out-lateral {
+  transform-origin: 50% 50%;
+  animation: zoom-out-lateral 1.4s ease-in-out both;
+}
+
+#scene-img.zoom-in-deeper {
+  animation: zoom-in-deeper 1.4s ease-out both;
+}
+
+#scene-img.zoom-in-up {
+  animation: zoom-in-up 1.4s ease-out both;
+}
+
+@keyframes zoom-out-deeper {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(1.5); }
+}
+
+@keyframes zoom-out-up {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.8); }
+}
+
+@keyframes zoom-out-lateral {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(var(--slide, 4%)); }
+}
+
+@keyframes zoom-in-deeper {
+  from { transform: scale(1.04); }
+  to   { transform: scale(1); }
+}
+
+@keyframes zoom-in-up {
+  from { transform: scale(1.02); }
+  to   { transform: scale(1); }
+}
 
 #vignette {
   position: absolute;

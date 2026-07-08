@@ -10,6 +10,9 @@
   const el = {
     title: $('title-screen'),
     titleMode: $('title-mode'),
+    painterPick: $('painter-pick'),
+    painterSelect: $('painter-select'),
+    painterStatus: $('painter-status'),
     begin: $('begin-btn'),
     game: $('game'),
     stage: $('stage'),
@@ -73,6 +76,8 @@
     chat: null, // { characterId, ended }
     pendingObject: null,
     overHotspot: false,
+    live: false,
+    lastClick: null, // normalized {x,y} of the click that started a travel
   };
 
   const OBJECT_GLYPHS = ['🗝', '🔮', '🐚', '🪶', '🧭', '📜', '🫙', '🪨', '🔔', '🕯'];
@@ -168,16 +173,52 @@
     });
   }
 
+  // Zoom-into-the-click transition. Freezes the outgoing frame on the overlay
+  // img and animates it over the already-swapped incoming frame so travel feels
+  // physically continuous:
+  //   deeper  → push into the clicked point (origin = click), incoming settles in
+  //   up      → shrink toward center, incoming settles out
+  //   lateral → crossfade + a slight slide toward the clicked side
+  const OUT_CLASSES = ['zoom-out-deeper', 'zoom-out-up', 'zoom-out-lateral'];
+  const IN_CLASSES = ['zoom-in-deeper', 'zoom-in-up'];
+
+  function runTransition(direction, fix) {
+    const out = el.imgOld;
+    const inc = el.img;
+
+    // clear any prior transition state, then freeze the current frame
+    OUT_CLASSES.forEach((c) => out.classList.remove(c));
+    IN_CLASSES.forEach((c) => inc.classList.remove(c));
+    out.style.removeProperty('--slide');
+    out.style.removeProperty('transform-origin');
+    out.src = inc.src;
+
+    // reflow so re-added animation classes restart from the first keyframe
+    void out.offsetWidth;
+
+    if (direction === 'up') {
+      out.classList.add('zoom-out-up');
+      inc.classList.add('zoom-in-up');
+    } else if (direction === 'deeper') {
+      const fx = fix ? fix.x : 0.5;
+      const fy = fix ? fix.y : 0.5;
+      out.style.transformOrigin = `${fx * 100}% ${fy * 100}%`;
+      out.classList.add('zoom-out-deeper');
+      inc.classList.add('zoom-in-deeper');
+    } else {
+      // lateral / root: plain crossfade, nudged toward the clicked side
+      const slide = fix && fix.x < 0.5 ? -4 : 4;
+      out.style.setProperty('--slide', `${slide}%`);
+      out.classList.add('zoom-out-lateral');
+    }
+  }
+
   async function showScene(scene, { direction = 'deeper' } = {}) {
     await preload(scene.image);
 
-    // crossfade: freeze old frame on the overlay img, swap main, fade overlay out
+    // freeze old frame + animate the swap (skipped on the very first scene)
     if (el.img.src) {
-      el.imgOld.src = el.img.src;
-      el.imgOld.classList.add('showing');
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => el.imgOld.classList.remove('showing'))
-      );
+      runTransition(direction, state.lastClick);
     }
     el.img.src = scene.image;
 
@@ -311,15 +352,19 @@
 
     // bbox-first: if the cursor sits inside one or more navPoint boxes, the
     // smallest-area box wins (so a steeple beats the lake painted behind it).
+    // Each navPoint may carry several alias boxes (boxes[0] === the primary
+    // box); any of them can claim the cursor.
     let found = null;
     let bestArea = Infinity;
     for (const np of scene.navPoints || []) {
-      const b = np.box;
-      if (b && nx >= b.x0 && nx <= b.x1 && ny >= b.y0 && ny <= b.y1) {
-        const area = (b.x1 - b.x0) * (b.y1 - b.y0);
-        if (area < bestArea) {
-          bestArea = area;
-          found = np;
+      const boxes = np.boxes || (np.box ? [np.box] : []);
+      for (const b of boxes) {
+        if (b && nx >= b.x0 && nx <= b.x1 && ny >= b.y0 && ny <= b.y1) {
+          const area = (b.x1 - b.x0) * (b.y1 - b.y0);
+          if (area < bestArea) {
+            bestArea = area;
+            found = np;
+          }
         }
       }
     }
@@ -370,6 +415,10 @@
     const x = (e.clientX - rect.left) / rect.width;
     const y = (e.clientY - rect.top) / rect.height;
 
+    // remember where the player pointed so the zoom transition can survive
+    // the async round-trip and push into that exact point.
+    state.lastClick = { x, y };
+
     // ripple + sound
     el.ripple.style.left = `${x * 100}%`;
     el.ripple.style.top = `${y * 100}%`;
@@ -416,6 +465,7 @@
 
   async function ascend() {
     if (state.busy || !state.scene || !state.scene.parentId) return;
+    state.lastClick = null; // button ascend has no click point → center origin
     state.busy = true;
     hideLabel();
     el.cursor.classList.remove('hot');
@@ -858,16 +908,53 @@
     }
   }
 
+  // ------------------------------------------------------------------ painter picker
+
+  function setupPainter(status) {
+    const models = status.imageModels || [];
+    if (!models.length) return; // backend offers no choice — leave picker hidden
+    el.painterSelect.innerHTML = '';
+    for (const m of models) {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = m.label;
+      if (m.id === status.imageModel) opt.selected = true;
+      el.painterSelect.appendChild(opt);
+    }
+    el.painterPick.hidden = false;
+    if (!status.live) {
+      el.painterStatus.textContent = '(mock mode — art is placeholder)';
+    }
+  }
+
+  async function changePainter() {
+    const sel = el.painterSelect;
+    const id = sel.value;
+    const label = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : id;
+    try {
+      await api('/api/settings', { imageModel: id });
+      let msg = `PAINTER SET — NEW SCENES USE ${label.toUpperCase()}`;
+      if (!state.live) msg += ' (MOCK MODE — ART IS PLACEHOLDER)';
+      el.painterStatus.textContent = msg;
+    } catch (err) {
+      el.painterStatus.textContent = 'PAINTER CHANGE FAILED';
+      console.error(err);
+    }
+  }
+
   fetch('/api/status')
     .then((r) => r.json())
     .then((s) => {
+      state.live = !!s.live;
       el.titleMode.textContent = s.live
         ? 'LIVE WORLD GENERATION · OPENROUTER'
         : 'MOCK MODE — SET OPENROUTER_API_KEY IN .ENV FOR LIVE GENERATION';
+      setupPainter(s);
     })
     .catch(() => {});
 
   el.begin.addEventListener('click', begin);
+  el.painterSelect.addEventListener('change', changePainter);
   el.stage.addEventListener('click', handleStageClick);
   el.stage.addEventListener('mousemove', trackCursor);
   el.ascend.addEventListener('click', (e) => {

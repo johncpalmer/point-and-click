@@ -42,6 +42,52 @@ import {
 const PORT = process.env.PORT || 3000;
 const LIVE = or.hasKey();
 
+// --- Image-model picker ------------------------------------------------------
+// Curated default list, env-overridable via ISLAND_IMAGE_MODELS="id|Label,id|Label".
+// The player's choice is persisted in state; the first entry (or ISLAND_IMAGE_MODEL)
+// is the default. Each model gets its own cache slug so switching repaints.
+
+const DEFAULT_IMAGE_MODELS = [
+  { id: 'google/gemini-2.5-flash-image', label: 'Gemini 2.5 Flash Image' },
+  { id: 'google/gemini-3-pro-image-preview', label: 'Gemini 3 Pro Image' },
+  { id: 'openai/gpt-image-1', label: 'GPT Image 1' },
+];
+
+function parseImageModelsEnv(raw) {
+  const out = [];
+  for (const chunk of String(raw).split(',')) {
+    const s = chunk.trim();
+    if (!s) continue;
+    const [id, label] = s.split('|');
+    if (id && id.trim()) out.push({ id: id.trim(), label: (label || id).trim() });
+  }
+  return out;
+}
+
+const IMAGE_MODELS = process.env.ISLAND_IMAGE_MODELS
+  ? parseImageModelsEnv(process.env.ISLAND_IMAGE_MODELS)
+  : DEFAULT_IMAGE_MODELS;
+const DEFAULT_IMAGE_MODEL =
+  process.env.ISLAND_IMAGE_MODEL || (IMAGE_MODELS[0] && IMAGE_MODELS[0].id) || 'google/gemini-2.5-flash-image';
+
+/** The image model currently in effect (player setting if valid, else default). */
+function currentImageModel() {
+  const sel = store.getSetting('imageModel');
+  if (sel && IMAGE_MODELS.some((m) => m.id === sel)) return sel;
+  return DEFAULT_IMAGE_MODEL;
+}
+
+/** Cache slug for a model: lowercased, every non-alphanumeric -> '-'. Mock = 'mock'. */
+function modelSlug(model) {
+  if (!LIVE) return 'mock';
+  return String(model).toLowerCase().replace(/[^a-z0-9]/g, '-');
+}
+
+/** The cache slug currently in effect. */
+function currentSlug() {
+  return modelSlug(currentImageModel());
+}
+
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.resolve('public')));
@@ -63,25 +109,164 @@ function synthBox(cx, cy, radius) {
   };
 }
 
-// Validate/repair a located box against its center. Requires four numbers,
-// x0<x1, y0<y1, clamped to [0,1]; expands to a minimum 0.03x0.03 around the
-// center if degenerate. Falls back to a synthesized box if no valid box given.
-function makeBox(f, cx, cy, radius) {
-  const b = f && f.box;
+// Validate/repair a raw box against a center. Requires four numbers; clamps to
+// [0,1], orders the corners, and expands to a minimum 0.03x0.03 around the
+// center if degenerate. Returns null if the raw box is not four numbers.
+function validateBox(b, cx, cy) {
   if (
-    b &&
-    typeof b.x0 === 'number' && typeof b.y0 === 'number' &&
-    typeof b.x1 === 'number' && typeof b.y1 === 'number'
+    !b ||
+    typeof b.x0 !== 'number' || typeof b.y0 !== 'number' ||
+    typeof b.x1 !== 'number' || typeof b.y1 !== 'number'
   ) {
-    let x0 = clamp01(Math.min(b.x0, b.x1));
-    let x1 = clamp01(Math.max(b.x0, b.x1));
-    let y0 = clamp01(Math.min(b.y0, b.y1));
-    let y1 = clamp01(Math.max(b.y0, b.y1));
-    if (x1 - x0 < 0.03) { x0 = clamp01(cx - 0.015); x1 = clamp01(cx + 0.015); }
-    if (y1 - y0 < 0.03) { y0 = clamp01(cy - 0.015); y1 = clamp01(cy + 0.015); }
-    return { x0, y0, x1, y1 };
+    return null;
   }
-  return synthBox(cx, cy, radius);
+  let x0 = clamp01(Math.min(b.x0, b.x1));
+  let x1 = clamp01(Math.max(b.x0, b.x1));
+  let y0 = clamp01(Math.min(b.y0, b.y1));
+  let y1 = clamp01(Math.max(b.y0, b.y1));
+  const mx = typeof cx === 'number' ? cx : (x0 + x1) / 2;
+  const my = typeof cy === 'number' ? cy : (y0 + y1) / 2;
+  if (x1 - x0 < 0.03) { x0 = clamp01(mx - 0.015); x1 = clamp01(mx + 0.015); }
+  if (y1 - y0 < 0.03) { y0 = clamp01(my - 0.015); y1 = clamp01(my + 0.015); }
+  return { x0, y0, x1, y1 };
+}
+
+// Validate/repair a located box against its center. Falls back to a synthesized
+// box if no valid box given.
+function makeBox(f, cx, cy, radius) {
+  return validateBox(f && f.box, cx, cy) || synthBox(cx, cy, radius);
+}
+
+// Center + radius derived from a final box: center of the box, radius = half the
+// box's larger dimension. Keeps nav dots, scan pins, and distance checks agreeing
+// with the corrected box.
+function boxCenter(box) {
+  const x = clamp((box.x0 + box.x1) / 2);
+  const y = clamp((box.y0 + box.y1) / 2);
+  const radius = Math.max(box.x1 - box.x0, box.y1 - box.y0) / 2;
+  return { x, y, radius: radius || 0.05 };
+}
+
+// --- Locate-accuracy compositing helpers ------------------------------------
+// A red coordinate grid (and optionally numbered feature boxes) composited onto
+// a COPY of a scene image so the vision model can read normalized coordinates
+// straight off it. These overlays are never saved as the scene art.
+
+const BOX_HUES = ['#ff3b30', '#34c759', '#0a84ff', '#ffcc00', '#ff2d95', '#00c7be', '#ff9500', '#bf5af2'];
+
+/** SVG for a 10x10 red grid with margin coordinate labels, plus optional boxes. */
+function overlaySvg(w, h, boxes) {
+  let s = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">`;
+  for (let i = 1; i < 10; i++) {
+    const gx = (i / 10) * w;
+    const gy = (i / 10) * h;
+    s += `<line x1="${gx.toFixed(1)}" y1="0" x2="${gx.toFixed(1)}" y2="${h}" stroke="rgba(255,0,0,0.55)" stroke-width="1"/>`;
+    s += `<line x1="0" y1="${gy.toFixed(1)}" x2="${w}" y2="${gy.toFixed(1)}" stroke="rgba(255,0,0,0.55)" stroke-width="1"/>`;
+  }
+  for (let i = 1; i < 10; i++) {
+    const label = `0.${i}`;
+    const gx = (i / 10) * w;
+    const gy = (i / 10) * h;
+    // top margin (x labels)
+    s += `<rect x="${(gx - 15).toFixed(1)}" y="1" width="30" height="20" fill="rgba(255,255,255,0.75)"/>`;
+    s += `<text x="${gx.toFixed(1)}" y="16" font-family="monospace" font-size="18" fill="#cc0000" text-anchor="middle">${label}</text>`;
+    // left margin (y labels)
+    s += `<rect x="1" y="${(gy - 11).toFixed(1)}" width="36" height="20" fill="rgba(255,255,255,0.75)"/>`;
+    s += `<text x="4" y="${(gy + 5).toFixed(1)}" font-family="monospace" font-size="18" fill="#cc0000">${label}</text>`;
+  }
+  if (boxes) {
+    for (const b of boxes) {
+      const x0 = b.box.x0 * w, y0 = b.box.y0 * h;
+      const bw = (b.box.x1 - b.box.x0) * w, bh = (b.box.y1 - b.box.y0) * h;
+      s += `<rect x="${x0.toFixed(1)}" y="${y0.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="none" stroke="${b.hue}" stroke-width="3"/>`;
+      s += `<rect x="${x0.toFixed(1)}" y="${y0.toFixed(1)}" width="24" height="21" fill="${b.hue}"/>`;
+      s += `<text x="${(x0 + 12).toFixed(1)}" y="${(y0 + 16).toFixed(1)}" font-family="monospace" font-size="16" fill="#ffffff" text-anchor="middle">${b.n}</text>`;
+    }
+  }
+  return Buffer.from(s + '</svg>');
+}
+
+/** Composite the grid (and optional numbered boxes) onto a copy of an image. */
+async function compositeOverlay(imgBuffer, boxes = null) {
+  const meta = await sharp(imgBuffer).metadata();
+  const svg = overlaySvg(meta.width || 1600, meta.height || 1000, boxes);
+  return sharp(imgBuffer).composite([{ input: svg }]).jpeg({ quality: 88 }).toBuffer();
+}
+
+/**
+ * Crop a feature out of a (parent) image at a normalized box, padded 25% each
+ * side, with a minimum crop of 30% of image width/height, clamped to bounds.
+ * Returns an ~800px-wide jpeg Buffer, or null on failure.
+ */
+async function cropFeature(imgBuffer, box) {
+  try {
+    const meta = await sharp(imgBuffer).metadata();
+    const W = meta.width || 1600;
+    const H = meta.height || 1000;
+    const bw = box.x1 - box.x0;
+    const bh = box.y1 - box.y0;
+    let x0 = box.x0 - bw * 0.25;
+    let x1 = box.x1 + bw * 0.25;
+    let y0 = box.y0 - bh * 0.25;
+    let y1 = box.y1 + bh * 0.25;
+    // Enforce a minimum crop of 30% (of the respective axis) around the center.
+    const grow = (a, b, min) => {
+      if (b - a < min) {
+        const c = (a + b) / 2;
+        return [c - min / 2, c + min / 2];
+      }
+      return [a, b];
+    };
+    [x0, x1] = grow(x0, x1, 0.30);
+    [y0, y1] = grow(y0, y1, 0.30);
+    x0 = clamp01(x0); y0 = clamp01(y0); x1 = clamp01(x1); y1 = clamp01(y1);
+    const left = Math.max(0, Math.round(x0 * W));
+    const top = Math.max(0, Math.round(y0 * H));
+    const width = Math.max(1, Math.min(W - left, Math.round((x1 - x0) * W)));
+    const height = Math.max(1, Math.min(H - top, Math.round((y1 - y0) * H)));
+    return await sharp(imgBuffer)
+      .extract({ left, top, width, height })
+      .resize({ width: 800 })
+      .jpeg({ quality: 88 })
+      .toBuffer();
+  } catch (err) {
+    console.error('[realize] crop failed:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Verify-and-correct second pass (LIVE only). Draws the first-pass boxes on a
+ * copy of the image (numbered, colored, over the same grid), asks the model to
+ * confirm or correct each, and applies corrections back onto located[key].box.
+ * On any failure the first-pass boxes are kept.
+ */
+async function verifyBoxes(imgBuffer, features, located) {
+  const items = [];
+  for (const f of features) {
+    const lf = located[f.key];
+    if (!lf || lf.found === false || typeof lf.x !== 'number' || typeof lf.y !== 'number') continue;
+    const box = makeBox(lf, clamp(lf.x), clamp(lf.y), lf.radius || 0.06);
+    const n = items.length + 1;
+    items.push({ n, key: f.key, box, hue: BOX_HUES[(n - 1) % BOX_HUES.length], desc: f.ask });
+  }
+  if (!items.length) return;
+
+  const boxed = await compositeOverlay(imgBuffer, items);
+  const raw = await or.chatWithImage(verifySystemPrompt(), verifyUserPrompt(items), boxed);
+  const parsed = or.parseJson(raw);
+  let corrected = 0;
+  for (const entry of parsed.boxes || []) {
+    if (!entry || typeof entry.n !== 'number' || entry.ok !== false) continue;
+    const item = items.find((it) => it.n === entry.n);
+    if (!item) continue;
+    const vb = validateBox(entry.box, undefined, undefined);
+    if (vb) {
+      located[item.key].box = vb;
+      corrected++;
+    }
+  }
+  console.log(`[realize] verify — ${corrected}/${items.length} box(es) corrected`);
 }
 
 // --- Scene realization pipeline ---------------------------------------------
@@ -89,33 +274,46 @@ function makeBox(f, cx, cy, radius) {
 // land on real pixels. Idempotent: returns cached overlay if it exists.
 
 async function realizeNode(nodeId) {
-  const cached = store.getNodeData(nodeId);
+  const model = currentImageModel();
+  const slug = modelSlug(model);
+
+  const cached = store.getNodeData(slug, nodeId);
   if (cached) return cached;
 
   const node = getNode(nodeId);
   if (!node) throw new Error(`unknown node: ${nodeId}`);
-  console.log(`[realize] ${nodeId} — painting scene`);
+  console.log(`[realize] ${nodeId} — painting scene (model ${LIVE ? model : 'mock'})`);
 
   // 1. Paint the scene. In LIVE mode, if the parent has already been painted,
   //    condition on its image so the child looks like the same physical place.
+  //    When the parent overlay has a box for this node, also pass a close crop
+  //    of exactly that feature so the child depicts what the player clicked.
   let imgBuffer;
   if (LIVE) {
     const parent = node.parent ? getNode(node.parent) : null;
-    const refPath = parent ? store.imagePath(parent.id) : null;
+    const refPath = parent ? store.imagePath(slug, parent.id) : null;
     if (parent && refPath && fs.existsSync(refPath)) {
       const refBuf = fs.readFileSync(refPath);
+      const refs = [refBuf];
+      const parentData = store.getNodeData(slug, parent.id);
+      const np = parentData && (parentData.navPoints || []).find((p) => p.nodeId === nodeId);
+      if (np && np.box) {
+        const cropBuf = await cropFeature(refBuf, np.box);
+        if (cropBuf) refs.push(cropBuf);
+      }
       imgBuffer = await or.generateImageWithReference(
-        buildImagePrompt(node, { withContinuity: parent.name }),
-        refBuf
+        buildImagePrompt(node, { withContinuity: parent.name, withCrop: refs.length > 1 }),
+        refs.length > 1 ? refs : refBuf,
+        { model }
       );
     } else {
-      imgBuffer = await or.generateImage(buildImagePrompt(node));
+      imgBuffer = await or.generateImage(buildImagePrompt(node), { model });
     }
     imgBuffer = await sharp(imgBuffer).resize(1600, 1000, { fit: 'cover' }).jpeg({ quality: 90 }).toBuffer();
   } else {
     imgBuffer = await mock.mockImage(nodeId, node.name);
   }
-  const image = store.saveImage(nodeId, imgBuffer);
+  const image = store.saveImage(slug, nodeId, imgBuffer);
 
   // 2. Build the feature list to locate: nav destinations (children + laterals,
   //    NOT parent) + the resident character + visible objects.
@@ -142,51 +340,84 @@ async function realizeNode(nodeId) {
     });
   }
 
-  // 3. One vision pass.
+  // 3. Locate pass. LIVE: composite a red coordinate grid onto a COPY of the
+  //    image and read coordinates off it; then a verify-and-correct second pass.
   console.log(`[realize] ${nodeId} — locating ${features.length} feature(s)`);
   let located = {};
   if (features.length) {
     let result;
     try {
-      result = LIVE
-        ? or.parseJson(await or.chatWithImage(locateSystemPrompt(), locateUserPrompt(features), imgBuffer))
-        : mock.mockLocate(features);
+      if (LIVE) {
+        const gridded = await compositeOverlay(imgBuffer);
+        result = or.parseJson(await or.chatWithImage(locateSystemPrompt(), locateUserPrompt(features), gridded));
+      } else {
+        result = mock.mockLocate(features);
+      }
     } catch (err) {
       console.error(`[realize] ${nodeId} — locate failed, using fallbacks:`, err.message);
       result = { features: [] };
     }
     for (const f of result.features || []) located[f.key] = f;
+
+    // Verify-and-correct second pass (LIVE only). Failures keep first-pass boxes.
+    if (LIVE) {
+      try {
+        await verifyBoxes(imgBuffer, features, located);
+      } catch (err) {
+        console.error(`[realize] ${nodeId} — verify pass failed, keeping first-pass boxes:`, err.message);
+      }
+    }
   }
 
   const usable = (f) => f && f.found !== false && typeof f.x === 'number' && typeof f.y === 'number';
 
+  // Collect up to 2 validated alias boxes from a located feature's `extra`.
+  const aliasBoxes = (f) => {
+    if (!usable(f) || !Array.isArray(f.extra)) return [];
+    const out = [];
+    for (const raw of f.extra.slice(0, 2)) {
+      const vb = validateBox(raw, undefined, undefined);
+      if (vb) out.push(vb);
+    }
+    return out;
+  };
+
   // 4. Nav points, with authored fallbacks for anything not confidently found.
+  //    x/y/radius are recentered from the final (possibly corrected) box so nav
+  //    dots and distance checks agree with it. navPoints carry every box (the
+  //    primary plus alias depictions) as `boxes`, with `box` = boxes[0].
   const navPoints = [];
   let childIdx = 0;
   let latIdx = 0;
   const childXs = [0.25, 0.5, 0.75];
   for (const d of navDests) {
     const f = located[`nav:${d.id}`];
-    let pos;
+    let box;
+    let center;
     if (usable(f)) {
-      pos = { x: f.x, y: f.y, radius: f.radius || 0.07 };
+      box = makeBox(f, clamp(f.x), clamp(f.y), f.radius || 0.07);
+      center = boxCenter(box);
     } else if (d.kind === 'lateral') {
-      pos = { x: latIdx % 2 === 0 ? 0.06 : 0.94, y: 0.55, radius: 0.07 };
+      const x = latIdx % 2 === 0 ? 0.06 : 0.94;
       latIdx++;
+      center = { x: clamp(x), y: clamp(0.55), radius: 0.07 };
+      box = synthBox(center.x, center.y, center.radius);
     } else {
-      pos = { x: childXs[childIdx % childXs.length], y: 0.6, radius: 0.07 };
+      const x = childXs[childIdx % childXs.length];
       childIdx++;
+      center = { x: clamp(x), y: clamp(0.6), radius: 0.07 };
+      box = synthBox(center.x, center.y, center.radius);
     }
-    const nx = clamp(pos.x);
-    const ny = clamp(pos.y);
+    const boxes = [box, ...aliasBoxes(f)];
     navPoints.push({
       nodeId: d.id,
       name: d.name,
       kind: d.kind,
-      x: nx,
-      y: ny,
-      radius: pos.radius,
-      box: makeBox(usable(f) ? f : null, nx, ny, pos.radius),
+      x: center.x,
+      y: center.y,
+      radius: center.radius,
+      box,
+      boxes,
     });
   }
 
@@ -195,10 +426,9 @@ async function realizeNode(nodeId) {
   if (cast) {
     const f = located.character;
     if (usable(f)) {
-      const nx = clamp(f.x);
-      const ny = clamp(f.y);
-      const r = f.radius || 0.06;
-      characterHotspot = { x: nx, y: ny, radius: r, box: makeBox(f, nx, ny, r) };
+      const box = makeBox(f, clamp(f.x), clamp(f.y), f.radius || 0.06);
+      const c = boxCenter(box);
+      characterHotspot = { x: c.x, y: c.y, radius: c.radius, box };
     } else {
       characterHotspot = { x: 0.5, y: 0.62, radius: 0.06, box: synthBox(0.5, 0.62, 0.06) };
     }
@@ -209,10 +439,9 @@ async function realizeNode(nodeId) {
   objs.forEach((o, i) => {
     const f = located[`obj:${o.id}`];
     if (usable(f)) {
-      const nx = clamp(f.x);
-      const ny = clamp(f.y);
-      const r = f.radius || 0.05;
-      objectHotspots[o.id] = { x: nx, y: ny, radius: r, box: makeBox(f, nx, ny, r) };
+      const box = makeBox(f, clamp(f.x), clamp(f.y), f.radius || 0.05);
+      const c = boxCenter(box);
+      objectHotspots[o.id] = { x: c.x, y: c.y, radius: c.radius, box };
     } else {
       const nx = clamp(0.35 + i * 0.3);
       objectHotspots[o.id] = { x: nx, y: 0.72, radius: 0.05, box: synthBox(nx, 0.72, 0.05) };
@@ -224,17 +453,16 @@ async function realizeNode(nodeId) {
   if (node.interactable) {
     const f = located[`use:${node.interactable.id}`];
     if (usable(f)) {
-      const nx = clamp(f.x);
-      const ny = clamp(f.y);
-      const r = f.radius || 0.07;
-      interactableHotspot = { x: nx, y: ny, radius: r, box: makeBox(f, nx, ny, r) };
+      const box = makeBox(f, clamp(f.x), clamp(f.y), f.radius || 0.07);
+      const c = boxCenter(box);
+      interactableHotspot = { x: c.x, y: c.y, radius: c.radius, box };
     } else {
       interactableHotspot = { x: 0.5, y: 0.55, radius: 0.07, box: synthBox(0.5, 0.55, 0.07) };
     }
   }
 
   const data = { image, navPoints, characterHotspot, objectHotspots, interactableHotspot };
-  store.saveNodeData(nodeId, data);
+  store.saveNodeData(slug, nodeId, data);
   console.log(`[realize] ${nodeId} — done (${navPoints.length} navPoints)`);
   return data;
 }
@@ -243,7 +471,7 @@ async function realizeNode(nodeId) {
 
 function publicScene(nodeId) {
   const node = getNode(nodeId);
-  const data = store.getNodeData(nodeId);
+  const data = store.getNodeData(currentSlug(), nodeId);
   const state = store.getState();
   const cast = castAt(nodeId);
 
@@ -325,7 +553,23 @@ function buildCtx(characterId) {
 // --- Routes ------------------------------------------------------------------
 
 app.get('/api/status', (req, res) => {
-  res.json({ live: LIVE, maxDepth: MAX_DEPTH, title: 'CADENCE' });
+  res.json({
+    live: LIVE,
+    maxDepth: MAX_DEPTH,
+    title: 'CADENCE',
+    imageModel: currentImageModel(),
+    imageModels: IMAGE_MODELS,
+  });
+});
+
+app.post('/api/settings', (req, res) => {
+  const { imageModel } = req.body || {};
+  if (!imageModel || !IMAGE_MODELS.some((m) => m.id === imageModel)) {
+    return res.status(400).json({ error: 'unknown image model' });
+  }
+  store.setSetting('imageModel', imageModel);
+  console.log(`[settings] imageModel -> ${imageModel}`);
+  res.json({ ok: true, imageModel });
 });
 
 app.get('/api/state', (req, res) => {
@@ -380,18 +624,19 @@ app.post('/api/click', async (req, res) => {
       return move(node.parent, 'up');
     }
 
-    // (2) Containment: among navPoints whose box contains the click, pick the
-    //     one with the SMALLEST box area (occlusion: the steeple beats the lake
-    //     behind it).
+    // (2) Containment: test ALL boxes (primary + alias depictions) of ALL
+    //     navPoints; the SMALLEST containing box wins (occlusion: the steeple
+    //     beats the lake behind it).
     let contained = null;
     let containedArea = Infinity;
     for (const np of data.navPoints) {
-      const b = np.box;
-      if (b && x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1) {
-        const area = (b.x1 - b.x0) * (b.y1 - b.y0);
-        if (area < containedArea) {
-          containedArea = area;
-          contained = np;
+      for (const b of np.boxes || (np.box ? [np.box] : [])) {
+        if (b && x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1) {
+          const area = (b.x1 - b.x0) * (b.y1 - b.y0);
+          if (area < containedArea) {
+            containedArea = area;
+            contained = np;
+          }
         }
       }
     }
@@ -414,7 +659,7 @@ app.post('/api/click', async (req, res) => {
     let choice = 'none';
     if (LIVE) {
       try {
-        const marked = await markClick(store.imagePath(nodeId), x, y);
+        const marked = await markClick(store.imagePath(currentSlug(), nodeId), x, y);
         const raw = await or.chatWithImage(clickSystemPrompt(dests), clickUserPrompt(node), marked);
         choice = or.parseJson(raw).choice || 'none';
       } catch (err) {

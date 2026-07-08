@@ -18,7 +18,7 @@ const IslandAudio = (() => {
     master.gain.value = 0.7;
     master.connect(ctx.destination);
     ambienceBus = ctx.createGain();
-    ambienceBus.gain.value = 0.55;
+    ambienceBus.gain.value = 0.4; // leave headroom for the theme underneath
     ambienceBus.connect(master);
   }
 
@@ -395,8 +395,8 @@ const IslandAudio = (() => {
         o.detune.value = cents;
         const g = ctx.createGain();
         g.gain.setValueAtTime(0.0001, t);
-        g.gain.linearRampToValueAtTime(0.045, t + 2.2);   // long attack
-        g.gain.setValueAtTime(0.045, t + dur - 0.3);       // hold
+        g.gain.linearRampToValueAtTime(0.06, t + 2.2);    // long attack
+        g.gain.setValueAtTime(0.06, t + dur - 0.3);        // hold
         g.gain.linearRampToValueAtTime(0.0001, t + dur + 1.8); // long release, overlaps next chord
         o.connect(g).connect(padFilter);
         o.start(t);
@@ -467,7 +467,7 @@ const IslandAudio = (() => {
     if (Math.random() > restProb) {                          // ~35%+ rests -> it breathes
       let m = currentChord.arp[Math.floor(Math.random() * currentChord.arp.length)];
       if (Math.random() < 0.14) m += 12;                     // occasional octave jump
-      pluck(mtof(m), t, 0.06 + Math.random() * 0.04);
+      pluck(mtof(m), t, 0.1 + Math.random() * 0.05);
     }
   }
 
@@ -505,7 +505,7 @@ const IslandAudio = (() => {
     duckGain.gain.value = 1;
     duckGain.connect(master);
     musicBus = ctx.createGain();
-    musicBus.gain.value = 0.11; // sits clearly under the ambient beds
+    musicBus.gain.value = 0.3; // present under the beds — the plucks must read through the noise
     musicBus.connect(duckGain);
 
     // pad chain + slow filter sweep
