@@ -60,6 +60,8 @@ button {
 
 /* ---------------------------------------------------------------- title */
 
+#title-screen[hidden] { display: none; }
+
 #title-screen {
   position: fixed;
   inset: 0;
