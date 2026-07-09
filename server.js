@@ -50,9 +50,13 @@ const LIVE = or.hasKey();
 // The player's choice is persisted in state; the first entry (or ISLAND_IMAGE_MODEL)
 // is the default. Each model gets its own cache slug so switching repaints.
 
+// Gemini 3 Pro Image is the default painter (highest fidelity). NOTE: if this
+// model id 404s on OpenRouter (preview id churn), the player can pick another
+// entry below and the env override (ISLAND_IMAGE_MODEL / ISLAND_IMAGE_MODELS)
+// still wins.
 const DEFAULT_IMAGE_MODELS = [
-  { id: 'google/gemini-2.5-flash-image', label: 'Gemini 2.5 Flash Image' },
   { id: 'google/gemini-3-pro-image-preview', label: 'Gemini 3 Pro Image' },
+  { id: 'google/gemini-2.5-flash-image', label: 'Gemini 2.5 Flash Image' },
   { id: 'openai/gpt-image-1', label: 'GPT Image 1' },
 ];
 
@@ -71,7 +75,7 @@ const IMAGE_MODELS = process.env.ISLAND_IMAGE_MODELS
   ? parseImageModelsEnv(process.env.ISLAND_IMAGE_MODELS)
   : DEFAULT_IMAGE_MODELS;
 const DEFAULT_IMAGE_MODEL =
-  process.env.ISLAND_IMAGE_MODEL || (IMAGE_MODELS[0] && IMAGE_MODELS[0].id) || 'google/gemini-2.5-flash-image';
+  process.env.ISLAND_IMAGE_MODEL || (IMAGE_MODELS[0] && IMAGE_MODELS[0].id) || 'google/gemini-3-pro-image-preview';
 
 /** The image model currently in effect (player setting if valid, else default). */
 function currentImageModel() {
@@ -210,46 +214,96 @@ function boxCenter(box) {
   return { x, y, radius: radius || 0.05 };
 }
 
-// --- Locate-accuracy compositing helpers ------------------------------------
-// A red coordinate grid (and optionally numbered feature boxes) composited onto
-// a COPY of a scene image so the vision model can read normalized coordinates
-// straight off it. These overlays are never saved as the scene art.
+// --- Set-of-marks compositing helpers ---------------------------------------
+// A numbered red CELL GRID (and optionally numbered feature boxes) composited
+// onto a COPY of a scene image so the vision model can SELECT labeled cells
+// instead of emitting fragile coordinates. These overlays are never saved as
+// the scene art.
 
 const BOX_HUES = ['#ff3b30', '#34c759', '#0a84ff', '#ffcc00', '#ff2d95', '#00c7be', '#ff9500', '#bf5af2'];
 
-/** SVG for a 10x10 red grid with margin coordinate labels, plus optional boxes. */
+// The set-of-marks grid: 14 columns x 10 rows = 140 cells, numbered
+// left-to-right, top-to-bottom (cell n = row*14 + col + 1, so 1..140).
+const GRID_COLS = 14;
+const GRID_ROWS = 10;
+const GRID_CELLS = GRID_COLS * GRID_ROWS;
+
+/** Normalized rect { x0,y0,x1,y1 } of cell number n (1..140). */
+function cellRect(n) {
+  const i = n - 1;
+  const col = i % GRID_COLS;
+  const row = Math.floor(i / GRID_COLS);
+  return {
+    x0: col / GRID_COLS,
+    y0: row / GRID_ROWS,
+    x1: (col + 1) / GRID_COLS,
+    y1: (row + 1) / GRID_ROWS,
+  };
+}
+
+/**
+ * Convert a list of cell numbers to the bounding box that is the UNION of those
+ * cells' rects. Invalid cell numbers (non-integer, <1, >140) are dropped; if
+ * none survive, returns null (treat as not found).
+ */
+function cellsToBox(cells) {
+  if (!Array.isArray(cells)) return null;
+  const valid = cells.map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= GRID_CELLS);
+  if (!valid.length) return null;
+  let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+  for (const n of valid) {
+    const r = cellRect(n);
+    x0 = Math.min(x0, r.x0);
+    y0 = Math.min(y0, r.y0);
+    x1 = Math.max(x1, r.x1);
+    y1 = Math.max(y1, r.y1);
+  }
+  return { x0, y0, x1, y1 };
+}
+
+/** SVG string for the numbered red cell grid (no wrapping <svg> tag). */
+function cellGridSvg(w, h) {
+  let s = '';
+  // Thin red grid lines.
+  for (let c = 1; c < GRID_COLS; c++) {
+    const gx = (c / GRID_COLS) * w;
+    s += `<line x1="${gx.toFixed(1)}" y1="0" x2="${gx.toFixed(1)}" y2="${h}" stroke="rgba(255,0,0,0.45)" stroke-width="1"/>`;
+  }
+  for (let r = 1; r < GRID_ROWS; r++) {
+    const gy = (r / GRID_ROWS) * h;
+    s += `<line x1="0" y1="${gy.toFixed(1)}" x2="${w}" y2="${gy.toFixed(1)}" stroke="rgba(255,0,0,0.45)" stroke-width="1"/>`;
+  }
+  // Each cell's number, small red-on-white in its top-left corner.
+  for (let r = 0; r < GRID_ROWS; r++) {
+    for (let c = 0; c < GRID_COLS; c++) {
+      const n = r * GRID_COLS + c + 1;
+      const x = (c / GRID_COLS) * w + 2;
+      const y = (r / GRID_ROWS) * h + 2;
+      const bw = n >= 100 ? 23 : n >= 10 ? 16 : 10;
+      s += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw}" height="15" fill="rgba(255,255,255,0.78)"/>`;
+      s += `<text x="${(x + 1.5).toFixed(1)}" y="${(y + 12).toFixed(1)}" font-family="monospace" font-size="13" fill="#cc0000">${n}</text>`;
+    }
+  }
+  return s;
+}
+
+/** SVG for the numbered cell grid, plus optional numbered feature boxes. */
 function overlaySvg(w, h, boxes) {
   let s = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">`;
-  for (let i = 1; i < 10; i++) {
-    const gx = (i / 10) * w;
-    const gy = (i / 10) * h;
-    s += `<line x1="${gx.toFixed(1)}" y1="0" x2="${gx.toFixed(1)}" y2="${h}" stroke="rgba(255,0,0,0.55)" stroke-width="1"/>`;
-    s += `<line x1="0" y1="${gy.toFixed(1)}" x2="${w}" y2="${gy.toFixed(1)}" stroke="rgba(255,0,0,0.55)" stroke-width="1"/>`;
-  }
-  for (let i = 1; i < 10; i++) {
-    const label = `0.${i}`;
-    const gx = (i / 10) * w;
-    const gy = (i / 10) * h;
-    // top margin (x labels)
-    s += `<rect x="${(gx - 15).toFixed(1)}" y="1" width="30" height="20" fill="rgba(255,255,255,0.75)"/>`;
-    s += `<text x="${gx.toFixed(1)}" y="16" font-family="monospace" font-size="18" fill="#cc0000" text-anchor="middle">${label}</text>`;
-    // left margin (y labels)
-    s += `<rect x="1" y="${(gy - 11).toFixed(1)}" width="36" height="20" fill="rgba(255,255,255,0.75)"/>`;
-    s += `<text x="4" y="${(gy + 5).toFixed(1)}" font-family="monospace" font-size="18" fill="#cc0000">${label}</text>`;
-  }
+  s += cellGridSvg(w, h);
   if (boxes) {
     for (const b of boxes) {
       const x0 = b.box.x0 * w, y0 = b.box.y0 * h;
       const bw = (b.box.x1 - b.box.x0) * w, bh = (b.box.y1 - b.box.y0) * h;
       s += `<rect x="${x0.toFixed(1)}" y="${y0.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="none" stroke="${b.hue}" stroke-width="3"/>`;
-      s += `<rect x="${x0.toFixed(1)}" y="${y0.toFixed(1)}" width="24" height="21" fill="${b.hue}"/>`;
-      s += `<text x="${(x0 + 12).toFixed(1)}" y="${(y0 + 16).toFixed(1)}" font-family="monospace" font-size="16" fill="#ffffff" text-anchor="middle">${b.n}</text>`;
+      s += `<rect x="${x0.toFixed(1)}" y="${(y0 + 16).toFixed(1)}" width="24" height="21" fill="${b.hue}"/>`;
+      s += `<text x="${(x0 + 12).toFixed(1)}" y="${(y0 + 32).toFixed(1)}" font-family="monospace" font-size="16" fill="#ffffff" text-anchor="middle">${b.n}</text>`;
     }
   }
   return Buffer.from(s + '</svg>');
 }
 
-/** Composite the grid (and optional numbered boxes) onto a copy of an image. */
+/** Composite the numbered cell grid (and optional feature boxes) onto a copy. */
 async function compositeOverlay(imgBuffer, boxes = null) {
   const meta = await sharp(imgBuffer).metadata();
   const svg = overlaySvg(meta.width || 1600, meta.height || 1000, boxes);
@@ -300,9 +354,10 @@ async function cropFeature(imgBuffer, box) {
 
 /**
  * Verify-and-correct second pass (LIVE only). Draws the first-pass boxes on a
- * copy of the image (numbered, colored, over the same grid), asks the model to
- * confirm or correct each, and applies corrections back onto located[key].box.
- * On any failure the first-pass boxes are kept.
+ * copy of the image (numbered, colored, over the same numbered cell grid), asks
+ * the model to confirm each or correct it by naming the cells the feature really
+ * occupies, and applies corrections back onto located[key].box. On any failure
+ * the first-pass boxes are kept.
  */
 async function verifyBoxes(imgBuffer, features, located) {
   const items = [];
@@ -323,7 +378,9 @@ async function verifyBoxes(imgBuffer, features, located) {
     if (!entry || typeof entry.n !== 'number' || entry.ok !== false) continue;
     const item = items.find((it) => it.n === entry.n);
     if (!item) continue;
-    const vb = validateBox(entry.box, undefined, undefined);
+    // Corrections come back as a cell list (SoM), converted the same way as the
+    // locate pass. (validateBox on the union keeps degenerate results sane.)
+    const vb = validateBox(cellsToBox(entry.cells), undefined, undefined);
     if (vb) {
       located[item.key].box = vb;
       corrected++;
@@ -404,7 +461,11 @@ async function realizeNode(nodeId) {
     } else {
       imgBuffer = await or.generateImage(prompt, { model });
     }
-    imgBuffer = await sharp(imgBuffer).resize(1600, 1000, { fit: 'cover' }).jpeg({ quality: 90 }).toBuffer();
+    imgBuffer = await sharp(imgBuffer)
+      .resize(1600, 1000, { fit: 'cover', kernel: sharp.kernel.lanczos3 })
+      .sharpen({ sigma: 0.8 })
+      .jpeg({ quality: 90 })
+      .toBuffer();
   } else {
     imgBuffer = await mock.mockImage(imageId, node.name);
   }
@@ -435,8 +496,11 @@ async function realizeNode(nodeId) {
     });
   }
 
-  // 3. Locate pass. LIVE: composite a red coordinate grid onto a COPY of the
-  //    image and read coordinates off it; then a verify-and-correct second pass.
+  // 3. Locate pass (set-of-marks). LIVE: composite the numbered red cell grid
+  //    onto a COPY of the image and have the model SELECT the cells each feature
+  //    occupies; then a verify-and-correct second pass. The cell lists are
+  //    converted to boxes (union of the cells' rects) here, so the rest of the
+  //    pipeline sees the same {x,y,radius,box,extra} shape as before.
   console.log(`[realize] ${nodeId} — locating ${features.length} feature(s)`);
   let located = {};
   if (features.length) {
@@ -452,7 +516,25 @@ async function realizeNode(nodeId) {
       console.error(`[realize] ${nodeId} — locate failed, using fallbacks:`, err.message);
       result = { features: [] };
     }
-    for (const f of result.features || []) located[f.key] = f;
+    // Convert selected cells -> box for each feature (LIVE and mock alike).
+    for (const f of result.features || []) {
+      if (!f || !f.key) continue;
+      if (f.found === false) {
+        located[f.key] = { key: f.key, found: false };
+        continue;
+      }
+      const box = cellsToBox(f.cells);
+      if (!box) {
+        located[f.key] = { key: f.key, found: false };
+        continue;
+      }
+      const c = boxCenter(box);
+      // "extra": [[cells...],[cells...]] — alias depictions of a nav destination.
+      const extra = Array.isArray(f.extra)
+        ? f.extra.map(cellsToBox).filter(Boolean).slice(0, 2)
+        : [];
+      located[f.key] = { key: f.key, found: true, x: c.x, y: c.y, radius: c.radius, box, extra };
+    }
 
     // Verify-and-correct second pass (LIVE only). Failures keep first-pass boxes.
     if (LIVE) {
