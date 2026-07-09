@@ -240,6 +240,7 @@
 
     renderHotspots(scene);
     renderNavDots(scene);
+    renderTargets(scene);
     el.scanPins.innerHTML = '';
     clearTimeout(scanTimer);
     closeChat(true);
@@ -258,6 +259,41 @@
     if (noRoutes && !scene.character && !(scene.objects && scene.objects.length) && !scene.interactable) {
       toast('DEAD END — ASCEND TO RETURN.');
     }
+  }
+
+  // ------------------------------------------------------------------ targets debug overlay
+  // Draws every click target (nav boxes incl. aliases, character, objects,
+  // interactable) over the painting so hitbox alignment can be judged at a
+  // glance. Toggled from the admin bar.
+  let showTargets = false;
+
+  function renderTargets(scene) {
+    const layer = document.getElementById('targets');
+    layer.innerHTML = '';
+    layer.hidden = !showTargets;
+    if (!showTargets || !scene) return;
+
+    function draw(kind, box, label) {
+      if (!box) return;
+      const d = document.createElement('div');
+      d.className = `target-box ${kind}`;
+      d.style.left = `${box.x0 * 100}%`;
+      d.style.top = `${box.y0 * 100}%`;
+      d.style.width = `${(box.x1 - box.x0) * 100}%`;
+      d.style.height = `${(box.y1 - box.y0) * 100}%`;
+      const t = document.createElement('span');
+      t.textContent = label;
+      d.appendChild(t);
+      layer.appendChild(d);
+    }
+
+    for (const np of scene.navPoints || []) {
+      const boxes = np.boxes || (np.box ? [np.box] : []);
+      boxes.forEach((b, i) => draw('nav', b, i === 0 ? np.name : `${np.name} (alt)`));
+    }
+    if (scene.character) draw('char', scene.character.hotspot && scene.character.hotspot.box, scene.character.name);
+    for (const o of scene.objects || []) draw('obj', o.hotspot && o.hotspot.box, o.name);
+    if (scene.interactable) draw('use', scene.interactable.hotspot && scene.interactable.hotspot.box, scene.interactable.name);
   }
 
   function renderHotspots(scene) {
@@ -1141,6 +1177,13 @@
   // admin / oracle
   el.adminSave.addEventListener('click', (e) => { e.stopPropagation(); adminSave(); });
   el.adminReset.addEventListener('click', (e) => { e.stopPropagation(); adminReset(); });
+  document.getElementById('admin-targets').addEventListener('click', (e) => {
+    e.stopPropagation();
+    showTargets = !showTargets;
+    e.target.classList.toggle('on', showTargets);
+    renderTargets(state.scene);
+    toast(showTargets ? 'TARGET OVERLAY ON' : 'TARGET OVERLAY OFF');
+  });
   el.adminOracle.addEventListener('click', (e) => { e.stopPropagation(); openOracle(); });
   el.oracleForm.addEventListener('submit', sendOracle);
   el.oracleClose.addEventListener('click', (e) => { e.stopPropagation(); closeOracle(); });

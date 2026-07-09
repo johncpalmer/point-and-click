@@ -1462,6 +1462,44 @@ button {
 }
 
 /* ---------------------------------------------------------------- admin cluster (debug) */
+/* debug hitbox overlay: every click target drawn over the painting */
+#targets {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 24;
+}
+
+#targets[hidden] { display: none; }
+
+.target-box {
+  position: absolute;
+  border: 1.5px solid;
+  font-family: var(--font-mono);
+}
+
+.target-box span {
+  position: absolute;
+  top: -1.1rem;
+  left: 0;
+  font-size: 0.55rem;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  padding: 0.05rem 0.3rem;
+  color: var(--bg0);
+}
+
+.target-box.nav  { border-color: var(--acc2); background: rgba(95, 216, 255, 0.08); }
+.target-box.nav span { background: var(--acc2); }
+.target-box.char { border-color: var(--acc); background: rgba(255, 138, 42, 0.08); }
+.target-box.char span { background: var(--acc); }
+.target-box.obj  { border-color: var(--glow-obj); background: rgba(255, 212, 121, 0.08); }
+.target-box.obj span { background: var(--glow-obj); }
+.target-box.use  { border-color: var(--violet); background: rgba(185, 140, 255, 0.08); }
+.target-box.use span { background: var(--violet); }
+
+#admin-targets.on { color: var(--acc2); border-color: var(--acc2); opacity: 1; }
+
 #admin-bar {
   position: absolute;
   left: 50%;
