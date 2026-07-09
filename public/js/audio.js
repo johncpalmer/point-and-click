@@ -351,11 +351,13 @@ const IslandAudio = (() => {
   // Seven deterministic, looping songs in the AG Cook "Life Sim" idiom
   // (sincere stepwise hooks, one leap per phrase, phrase-ends on chord tones).
   // One per island region + the title/overworld, each in a DIFFERENT key and
-  // tempo so the player recognises a region on return. Production: a bright,
-  // soft-clipped square+saw lead with portamento glides + vibrato; pads & sub
-  // duck on every beat (sidechain pump); DX plucks for arps through a ping-pong
-  // delay; a clean 0.3 music bus into master. Note data is fixed — nothing is
-  // randomised. See musicStart / musicStop / setRegion / getLevels.
+  // tempo so the player recognises a region on return. Full arrangement per song
+  // (island is the template): detuned PAD + authored root/fifth/octave BASS
+  // (sine+triangle) both sidechain-pumped; deterministic DX ARP plucks through a
+  // ping-pong delay; a soft-clipped square+saw LEAD with portamento + vibrato;
+  // and quiet DRUMS (kick/hat/clap) on a low post-pump bus. Everything quantizes
+  // to the straight 16th grid — no swing. Note data is fixed — nothing random.
+  // See musicStart / musicStop / setRegion / getLevels.
 
   const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -388,19 +390,21 @@ const IslandAudio = (() => {
     },
     // harbor — D mixolydian (C naturals in the arp), 92 BPM. Salt, patience, rocking.
     harbor: {
-      bpm: 92, bars: 8, barsPerChord: 2, swing: 0.08,
+      bpm: 92, bars: 8, barsPerChord: 2,
       chords: [[50, 54, 57, 62], [48, 52, 55, 60], [47, 50, 55, 59], [50, 54, 57, 62]], // D  C  G/B  D
       sub: [38, 36, 35, 38],                          // D2 C2 B1 D2
       arpTones: [[62, 66, 69, 72], [60, 64, 67, 72], [59, 62, 67, 71], [62, 66, 69, 72]], // C-naturals = mixolydian color
-      arp: { div: 8, seq: [0, 1, 2, 3, 2, 1, 2, 3] }, // swaying
+      arp: { div: 8, seq: [0, 1, 2, 3, 2, 1, 2, 3] }, // swaying up then down
+      bass: [[0, 1], [null, 0.5], [0, 0.5], [7, 1], [12, 1]], // root . root fifth octave (rocking)
+      drums: { kick: [0, 2], hat16: false, clap: true },
       lead: [
         [69, 2], [67, 1], [66, 1],                    // A4 G4 F#4
-        [67, 1.5], [64, 0.5], [62, 2],                // G4 E4 D4
-        [null, 1], [66, 1], [67, 1], [69, 1],         // rest F#4 G4 A4
+        [67, 1.5], [64, 0.5], [62, 2],                // G4 E4 D4  (phrase-end D4, chord tone)
+        [null, 1], [null, 0.5], [66, 0.5], [67, 1], [69, 1], // F#4 enters on the & (syncopation) G4 A4
         [72, 1.5], [71, 0.5], [69, 2],                // C5 B4 A4
         [69, 2], [67, 1], [66, 1],
         [67, 1.5], [64, 0.5], [62, 2],
-        [null, 1], [66, 1], [67, 1], [69, 1],
+        [null, 1], [null, 0.5], [66, 0.5], [67, 1], [69, 1],
         [72, 1.5], [74, 0.5], [76, 2],                // C5 D5 E5  (ending varies upward)
       ],
     },
@@ -412,12 +416,14 @@ const IslandAudio = (() => {
       sub: [42, 38, 45, 37],                          // F#2 D2 A2 C#2
       arpTones: [[66, 69, 73, 78], [62, 66, 69, 74], [64, 69, 73, 76], [61, 64, 68, 73]],
       arp: { div: 8, seq: [0, -1, 2, -1, 1, -1, 3, -1] }, // sparse
+      bass: [[0, 2], [7, 2]],                         // root/fifth swells only (no drums; music-box stays naked)
+      bassSwell: true,
       lead: [
         [78, 1], [null, 1], [81, 1], [null, 1],       // F#5 . A5 .
         [85, 2], [null, 2],                           // C#6 .
         [83, 1], [81, 1], [78, 1], [null, 1],         // B5 A5 F#5 .
         [76, 2], [null, 2],                           // E5 .
-        [81, 1], [null, 1], [85, 1], [null, 1],       // A5 . C#6 .
+        [81, 1], [null, 0.5], [85, 0.5], [null, 2],   // A5 . C#6 (off-beat entry, syncopation) .
         [88, 2], [85, 1], [81, 1],                    // E6 C#6 A5
         [83, 1], [81, 1], [78, 1], [76, 1],           // B5 A5 F#5 E5
         [78, 2], [null, 2],                           // F#5 .
@@ -426,19 +432,21 @@ const IslandAudio = (() => {
     // lake — A maj9 / D maj9, 72 BPM half-time. Dreamy: long 2-3 beat notes so
     // the portamento glides are very audible; sub prominent.
     lake: {
-      bpm: 72, bars: 8, barsPerChord: 2,
+      bpm: 72, bars: 8, barsPerChord: 2, subLevel: 0.85,
       chords: [[57, 64, 68, 71], [50, 57, 61, 64], [57, 64, 68, 71], [50, 57, 61, 64]], // Amaj9  Dmaj9
       sub: [45, 38, 45, 38],                          // A2 D2 (prominent)
       arpTones: [[64, 68, 71, 73], [57, 61, 64, 66], [64, 68, 71, 73], [57, 61, 64, 66]],
-      arp: { div: 8, seq: [0, -1, 1, -1, 2, -1, 3, -1] },
+      arp: { div: 8, seq: [0, -1, 2, -1, 3, -1, 1, -1] }, // mixed directions, sparse
+      bass: [[0, 2], [12, 1], [7, 1]],                // root octave fifth (sub-forward, gentle)
+      drums: { kick: [0, 2], hat16: false, clap: false },
       lead: [
-        [76, 3], [73, 1],                             // E5 (long) C#5
-        [74, 2], [71, 2],                             // D5 B4
-        [69, 3], [73, 1],                             // A4 (long) C#5
-        [76, 4],                                      // E5 (held)
-        [78, 2], [76, 2],                             // F#5 E5
+        [76, 3], [73, 1],                             // E5 (long) C#5     (call)
+        [74, 1.5], [null, 0.5], [71, 2],              // D5, (rest &2), B4 (off-beat entry) -> chord tone
+        [69, 3], [73, 1],                             // A4 (long) C#5     (answer)
+        [78, 4],                                      // F#5 (the one leap, +5, held) chord tone of D
+        [76, 2], [78, 2],                             // E5 F#5
         [73, 3], [74, 1],                             // C#5 (long) D5
-        [69, 2], [71, 2],                             // A4 B4
+        [71, 2], [69, 2],                             // B4 A4
         [73, 4],                                      // C#5 (held, chord tone)
       ],
     },
@@ -449,16 +457,18 @@ const IslandAudio = (() => {
       chords: [[52, 56, 59, 64], [47, 51, 54, 59], [49, 52, 56, 61], [45, 49, 52, 57]], // E  B  C#m  A
       sub: [40, 35, 37, 33],                          // E2 B1 C#2 A1
       arpTones: [[64, 68, 71, 76], [59, 63, 66, 71], [61, 64, 68, 73], [57, 61, 64, 69]],
-      arp: { div: 16, seq: [0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3] },
+      arp: { div: 16, seq: [0, 1, 2, 3, 3, 2, 1, 2, 0, 1, 2, 3, 3, 2, 1, 0] }, // driving, mixed directions
+      bass: [[0, 1], [7, 0.5], [12, 0.5], [0, 1], [7, 1]], // root fifth octave root fifth (driving)
+      drums: { kick: [0, 1, 2, 3], hat16: false, clap: true },
       lead: [
-        [64, 1], [66, 1], [68, 1], [71, 1],           // E4 F#4 G#4 B4  (rising)
-        [73, 2], [71, 2],                             // C#5 B4
-        [68, 1], [71, 1], [73, 1], [76, 1],           // G#4 B4 C#5 E5
-        [78, 2], [76, 2],                             // F#5 E5
-        [71, 1], [73, 1], [76, 1], [78, 1],           // B4 C#5 E5 F#5
-        [80, 2], [78, 2],                             // G#5 F#5
-        [76, 1], [78, 1], [80, 1], [83, 1],           // E5 F#5 G#5 B5  (sweep up)
-        [88, 2], [76, 2],                             // E6 (peak) E5
+        [64, 1], [68, 1], [71, 1], [73, 1],           // E4 G#4 B4 C#5  (rising call)
+        [76, 1.5], [null, 0.5], [71, 2],              // E5, (rest &2), B4 (off-beat entry) -> chord tone
+        [71, 1], [75, 1], [78, 2],                    // B4 D#5 F#5  (answer)
+        [76, 1], [75, 1], [78, 2],                    // E5 D#5 F#5 -> chord tone
+        [76, 1], [80, 1], [85, 1], [80, 1],           // E5 G#5 C#6 (leap +5) G#5
+        [83, 1], [80, 1], [76, 2],                    // B5 G#5 E5 -> chord tone
+        [81, 1], [85, 1], [88, 2],                    // A5 C#6 E6 (peak)
+        [85, 1], [80, 1], [76, 2],                    // C#6 G#5 E5 (settle, chord tone)
       ],
     },
     // chancel — C# minor, 80 BPM. Pad-forward glass choir (stacked detuned
@@ -469,15 +479,17 @@ const IslandAudio = (() => {
       sub: [37, 33, 40, 35],                          // C#2 A1 E2 B1
       arpTones: [[61, 64, 68, 73], [57, 61, 64, 69], [64, 68, 71, 76], [59, 63, 66, 71]],
       arp: { div: 8, seq: [0, -1, -1, 1, -1, 2, -1, -1] }, // sparse bell
+      bass: [[0, 2], [null, 1], [7, 1]],              // root swell . fifth (sparse, pad-forward)
+      drums: { kick: [0, 2], hat16: false, clap: false },
       lead: [
         [73, 2], [null, 2],                           // C#5 .
-        [76, 1], [71, 1], [null, 2],                  // E5 B4 .
-        [80, 2], [76, 1], [73, 1],                    // G#5 E5 C#5
-        [71, 2], [null, 2],                           // B4 .
-        [73, 2], [76, 1], [78, 1],                    // C#5 E5 F#5
+        [76, 1], [73, 0.5], [71, 0.5], [68, 1], [null, 1], // E5 C#5 B4 (&-of-2 syncopation) G#4 .
+        [76, 2], [null, 2],                           // E5 .
+        [81, 1], [76, 1], [73, 2],                    // A5 (leap +5) E5 C#5 -> chord tone
         [80, 2], [null, 2],                           // G#5 .
-        [78, 1], [76, 1], [73, 1], [71, 1],           // F#5 E5 C#5 B4
-        [73, 4],                                      // C#5 (held, tonic)
+        [76, 1], [80, 0.5], [83, 0.5], [80, 1], [null, 1], // E5 G#5 B5 G#5 . -> chord tone
+        [78, 2], [null, 1], [76, 1],                  // F#5 . E5
+        [73, 4],                                      // C#5 (held tonic pedal, resolves into the loop)
       ],
     },
     // terraces — D lydian (G#), 112 BPM, bounciest. 16th-note arp driving
@@ -488,11 +500,13 @@ const IslandAudio = (() => {
       sub: [38, 40, 33, 35],                          // D2 E2 A1 B1
       arpTones: [[62, 66, 69, 74], [64, 68, 71, 76], [69, 73, 76, 81], [59, 62, 66, 71]],
       arp: { div: 16, seq: [0, 1, 2, 3, 2, 3, 0, 1, 0, 1, 2, 3, 2, 3, 1, 0] },
+      bass: [[0, 1], [7, 0.5], [0, 0.5], [12, 1], [7, 1]],    // root fifth root octave fifth (bouncy)
+      drums: { kick: [0, 1, 2, 3], hat16: true, clap: true },
       lead: [
         [66, 1], [69, 0.5], [73, 0.5], [78, 1], [73, 1],       // F#4 A4 C#5 F#5(leap) C#5
         [74, 1.5], [71, 0.5], [69, 2],                         // D5 B4 A4
         [69, 0.5], [73, 0.5], [76, 1], [73, 0.5], [69, 0.5], [66, 1], // A4 C#5 E5 C#5 A4 F#4
-        [68, 2], [62, 2],                                      // G#4 (lydian color) D4
+        [68, 2], [64, 2],                                      // G#4 (lydian color) E4 (chord tone)
         [66, 1], [69, 0.5], [73, 0.5], [80, 1], [73, 1],       // F#4 A4 C#5 G#5(leap) C#5
         [78, 1.5], [76, 0.5], [73, 2],                         // F#5 E5 C#5
         [73, 0.5], [76, 0.5], [78, 1], [76, 0.5], [73, 0.5], [69, 1], // C#5 E5 F#5 E5 C#5 A4
@@ -558,8 +572,15 @@ const IslandAudio = (() => {
     padFilter.connect(padGain).connect(pump);
 
     const subGain = ctx.createGain();
-    subGain.gain.value = 0.6;
+    subGain.gain.value = song.subLevel || 0.6; // bass/sub voice level (lake sub-forward)
     subGain.connect(pump);
+
+    // drum bus: routes to the song gain (music bus + analyser) but NOT through the
+    // sidechain pump — drums stay steady, felt not heard, and don't breathe.
+    const drumBus = ctx.createGain();
+    drumBus.gain.value = 0.5;
+    drumBus.connect(g);
+    const noiseBuf = noiseBuffer(1); // shared source buffer for hats/claps
 
     // lead: square+saw pair -> tanh waveshaper -> leadGain
     const shaper = ctx.createWaveShaper();
@@ -594,7 +615,7 @@ const IslandAudio = (() => {
 
     return {
       name, song,
-      songGain: g, pump, padFilter, padGain, subGain,
+      songGain: g, pump, padFilter, padGain, subGain, drumBus, noiseBuf,
       shaper, leadGain, arpGain, arpSend,
       delayL, delayR, fb, panL, panR, wet,
       step: 0, nextStepTime: 0, prevLeadFreq: 0, alive: true,
@@ -604,7 +625,7 @@ const IslandAudio = (() => {
   function retireInstance(inst) {
     inst.alive = false;
     instances = instances.filter((x) => x !== inst);
-    [inst.songGain, inst.pump, inst.padFilter, inst.padGain, inst.subGain, inst.shaper,
+    [inst.songGain, inst.pump, inst.padFilter, inst.padGain, inst.subGain, inst.drumBus, inst.shaper,
      inst.leadGain, inst.arpGain, inst.arpSend, inst.delayL, inst.delayR, inst.fb,
      inst.panL, inst.panR, inst.wet].forEach((n) => { try { n.disconnect(); } catch (e) { /* ignore */ } });
   }
@@ -709,6 +730,113 @@ const IslandAudio = (() => {
     return f;
   }
 
+  // authored bass: sine+triangle blend on a root/fifth/octave pattern, routed
+  // through subGain so the sidechain pump ducks it with the pad. One bar, repeats.
+  function playBass(inst, slot, t) {
+    const song = inst.song;
+    const spb = 60 / song.bpm;
+    const root = song.sub[slot];
+    let b = 0;
+    for (const [off, durBeats] of song.bass) {
+      if (off !== null) bassNote(inst, mtof(root + off), t + b * spb, durBeats * spb, song.bassSwell);
+      b += durBeats;
+    }
+  }
+
+  function bassNote(inst, freq, t, durSec, swell) {
+    const env = ctx.createGain();
+    const peak = 0.22;
+    const atk = swell ? Math.min(durSec * 0.5, 0.9) : 0.012; // ringwood bass = slow swell
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.linearRampToValueAtTime(peak, t + atk);
+    env.gain.setValueAtTime(peak, t + Math.max(atk + 0.02, durSec * 0.85));
+    env.gain.exponentialRampToValueAtTime(0.0006, t + durSec + 0.06);
+    env.connect(inst.subGain);
+    [['sine', 1], ['triangle', 0.5]].forEach(([type, lvl]) => {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.value = freq;
+      const og = ctx.createGain();
+      og.gain.value = lvl;
+      o.connect(og).connect(env);
+      o.start(t);
+      o.stop(t + durSec + 0.1);
+    });
+  }
+
+  // --- drums (soft; the drumBus is low and skips the sidechain pump) ---
+
+  function playDrums(inst, cfg, stepInBar, t) {
+    // kick on its configured beats (1&3, or all four for peaks & terraces)
+    if (stepInBar % STEPS_PER_BEAT === 0 && cfg.kick.indexOf(stepInBar / STEPS_PER_BEAT) >= 0) kick(inst, t);
+    // hat on 8ths (16ths for terraces), alternating velocity 0.5 / 1.0
+    const hatEvery = cfg.hat16 ? 1 : 2;
+    if (stepInBar % hatEvery === 0) hat(inst, t, ((stepInBar / hatEvery) % 2 === 0) ? 0.5 : 1);
+    // clap on beats 2 & 4 (harbor / peaks / terraces only)
+    if (cfg.clap && (stepInBar === 4 || stepInBar === 12)) clap(inst, t);
+  }
+
+  function kick(inst, t) {
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(150, t);
+    o.frequency.exponentialRampToValueAtTime(48, t + 0.08);  // pitch drop 150->48 over 80ms
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.7, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + 0.22);
+    o.connect(g).connect(inst.drumBus);
+    o.start(t);
+    o.stop(t + 0.26);
+    // tiny click transient
+    const c = ctx.createOscillator();
+    c.type = 'square';
+    c.frequency.value = 1700;
+    const cg = ctx.createGain();
+    cg.gain.setValueAtTime(0.05, t);
+    cg.gain.exponentialRampToValueAtTime(0.0005, t + 0.012);
+    c.connect(cg).connect(inst.drumBus);
+    c.start(t);
+    c.stop(t + 0.02);
+  }
+
+  function hat(inst, t, vel) {
+    const src = ctx.createBufferSource();
+    src.buffer = inst.noiseBuf;
+    src.loop = true;
+    const f = ctx.createBiquadFilter();
+    f.type = 'highpass';
+    f.frequency.value = 7500;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vel * 0.11, t + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0005, t + 0.025);  // 25ms burst
+    src.connect(f).connect(g).connect(inst.drumBus);
+    src.start(t);
+    src.stop(t + 0.03);
+  }
+
+  function clap(inst, t) {
+    // bandpassed noise ~120ms with a 2-tap flam (short pre-tap + longer body)
+    [[0, 0.03, 0.06], [0.012, 0.12, 0.09]].forEach(([off, dur, lvl]) => {
+      const src = ctx.createBufferSource();
+      src.buffer = inst.noiseBuf;
+      src.loop = true;
+      const f = ctx.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.value = 1500;
+      f.Q.value = 1.2;
+      const g = ctx.createGain();
+      const tt = t + off;
+      g.gain.setValueAtTime(0.0001, tt);
+      g.gain.linearRampToValueAtTime(lvl, tt + 0.002);
+      g.gain.exponentialRampToValueAtTime(0.0005, tt + dur);
+      src.connect(f).connect(g).connect(inst.drumBus);
+      src.start(tt);
+      src.stop(tt + dur + 0.02);
+    });
+  }
+
   // --- scheduler ---
 
   function tickInstance(inst, t) {
@@ -717,21 +845,22 @@ const IslandAudio = (() => {
     const barIndex = Math.floor(step / STEPS_PER_BAR);
     const stepInBar = step % STEPS_PER_BAR;
     const slot = Math.floor(barIndex / song.barsPerChord) % song.chords.length;
-    const sixteenth = (60 / song.bpm) / 4;
+    const sixteenth = (60 / song.bpm) / 4; // one grid step at this song's tempo
 
-    // swing: nudge the off-beat 8ths later
-    let when = t;
-    if (song.swing && (stepInBar % 4 === 2)) when = t + sixteenth * 2 * song.swing;
+    // No swing: every voice quantizes to the straight 16th grid (t).
 
     // new chord every barsPerChord bars
     if (stepInBar === 0 && (barIndex % song.barsPerChord === 0)) {
       playPad(inst, slot, t);
-      playSub(inst, slot, t);
+      if (!song.bass) playSub(inst, slot, t);                // island keeps its held sub
     }
+    // authored bass pattern (one bar, repeats every bar) for the full arrangements
+    if (stepInBar === 0 && song.bass) playBass(inst, slot, t);
+
     // low toll on bar 1 of the loop (chancel)
     if (song.toll && step === 0) pluck(inst, mtof(song.sub[0] + 12), t, 0.18, 2.4);
 
-    // sidechain pump: pad+sub duck to -4 dB (0.63) each beat, 60ms dip, 200ms recovery
+    // sidechain pump: pad+bass duck to -4 dB (0.63) each beat, 60ms dip, 200ms recovery
     if (stepInBar % STEPS_PER_BEAT === 0) {
       const p = inst.pump.gain;
       p.setValueAtTime(1, t);
@@ -739,14 +868,17 @@ const IslandAudio = (() => {
       p.linearRampToValueAtTime(1, t + 0.26);
     }
 
-    // arp
+    // drums (quiet; drumBus is post-pump so they don't pump)
+    if (song.drums) playDrums(inst, song.drums, stepInBar, t);
+
+    // arp — deterministic sequence on the straight 16th grid
     const arp = song.arp;
     const stepsPerArp = STEPS_PER_BAR / arp.div; // 2 for 8ths, 1 for 16ths
     if (step % stepsPerArp === 0) {
       const idx = arp.seq[(stepInBar / stepsPerArp) % arp.seq.length];
       if (idx >= 0) {
         const pool = song.arpTones[slot];
-        pluck(inst, mtof(pool[idx % pool.length]), when, 0.075, 0.4);
+        pluck(inst, mtof(pool[idx % pool.length]), t, 0.075, 0.4);
       }
     }
 
@@ -755,12 +887,12 @@ const IslandAudio = (() => {
     if (ev) {
       const durSec = ev.durSteps * sixteenth;
       if (song.leadType === 'pluck') {                       // ringwood music-box
-        pluck(inst, mtof(ev.midi), when, 0.14, Math.min(1.9, durSec * 0.9 + 0.3));
+        pluck(inst, mtof(ev.midi), t, 0.14, Math.min(1.9, durSec * 0.9 + 0.3));
         inst.prevLeadFreq = mtof(ev.midi);
       } else {
         const prev = inst.prevLeadFreq;
-        const f = leadVoice(inst, ev.midi, when, durSec, prev, 1);
-        if (song.leadOctaveDouble) leadVoice(inst, ev.midi + 12, when, durSec, prev > 0 ? prev * 2 : 0, 0.4);
+        const f = leadVoice(inst, ev.midi, t, durSec, prev, 1);
+        if (song.leadOctaveDouble) leadVoice(inst, ev.midi + 12, t, durSec, prev > 0 ? prev * 2 : 0, 0.4);
         inst.prevLeadFreq = f;
       }
     }
