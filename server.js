@@ -28,6 +28,7 @@ import {
   OBJECTS,
   CLUES,
   INTERACTION_RESULTS,
+  USES,
 } from './lib/world.js';
 import {
   buildImagePrompt,
@@ -36,6 +37,8 @@ import {
   clickSystemPrompt,
   clickUserPrompt,
   chatSystemPrompt,
+  observeSystemPrompt,
+  observeUserPrompt,
   blockedLines,
 } from './lib/prompts.js';
 
@@ -96,6 +99,66 @@ app.use('/images', express.static(store.imagesDir(), { maxAge: '1y', immutable: 
 const clamp = (v) => Math.min(0.97, Math.max(0.03, v));
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const blockedLine = () => blockedLines[Math.floor(Math.random() * blockedLines.length)];
+
+// In-world refusals for using an object where nothing is authored to happen.
+const REFUSAL_LINES = [
+  'It stays quiet in your hand.',
+  'Not here. Something else is meant for this place.',
+  'Nothing in the place reaches back for it.',
+];
+const refusalLine = () => REFUSAL_LINES[Math.floor(Math.random() * REFUSAL_LINES.length)];
+
+// --- World-state resolution --------------------------------------------------
+// A node's live world state (from player progress) decides which cache slot and
+// image file it uses, and — when the node authors that state — how it is painted.
+
+/** The active state NAME for a node, but only if the node authors that state. */
+function activeState(nodeId) {
+  const node = getNode(nodeId);
+  const sn = store.getWorldState(nodeId);
+  return sn && node && node.states && node.states[sn] ? sn : null;
+}
+
+/** Cache key id: `${nodeId}:${state}` when a state is active, else `${nodeId}`. */
+function nodeCacheId(nodeId) {
+  const sn = activeState(nodeId);
+  return sn ? `${nodeId}:${sn}` : nodeId;
+}
+
+/** Image file id: `${nodeId}--${state}` when a state is active, else `${nodeId}`. */
+function nodeImageId(nodeId) {
+  const sn = activeState(nodeId);
+  return sn ? `${nodeId}--${sn}` : nodeId;
+}
+
+// Caretaker-visible deeds, keyed by node + world-state marker. buildCtx turns
+// these into "RECENT EVENTS YOU KNOW OF" lines for the matching caretaker.
+const EVENT_MAP = {
+  bellchamber: {
+    rung: {
+      for: 'odo',
+      text: 'The great bell of the Ringwood has rung — the traveler seated its clapper, and the whole island heard the note.',
+    },
+  },
+  hornmouth: {
+    signaled: {
+      for: 'serak',
+      text: 'The traveler flashed the signal mirror at the horizon, and something out on the sea answered back.',
+    },
+  },
+  pool: {
+    seen: {
+      for: 'maren',
+      text: 'The traveler held the sea-glass lens over the listening pool and saw the faces of the Tidewrights in the water.',
+    },
+  },
+  nave: {
+    read: {
+      for: 'lys',
+      text: 'The traveler brought the severed score-cord to you, and you read the last measure aloud.',
+    },
+  },
+};
 
 // Synthesize a bounding box from a center + radius (fallback shape): wider than
 // tall, hugging roughly the visible extent of a point feature.
@@ -277,43 +340,75 @@ async function realizeNode(nodeId) {
   const model = currentImageModel();
   const slug = modelSlug(model);
 
-  const cached = store.getNodeData(slug, nodeId);
-  if (cached) return cached;
-
   const node = getNode(nodeId);
   if (!node) throw new Error(`unknown node: ${nodeId}`);
-  console.log(`[realize] ${nodeId} — painting scene (model ${LIVE ? model : 'mock'})`);
+
+  // A node in an authored world state paints and caches under a state-suffixed
+  // key/file; the default (no state) keeps the original keys and behavior.
+  const stateName = activeState(nodeId);
+  const stateDef = stateName ? node.states[stateName] : null;
+  const cacheId = nodeCacheId(nodeId);
+  const imageId = nodeImageId(nodeId);
+
+  const cached = store.getNodeData(slug, cacheId);
+  if (cached) return cached;
+
+  console.log(
+    `[realize] ${nodeId}${stateName ? `:${stateName}` : ''} — painting scene (model ${LIVE ? model : 'mock'})`
+  );
 
   // 1. Paint the scene. In LIVE mode, if the parent has already been painted,
   //    condition on its image so the child looks like the same physical place.
   //    When the parent overlay has a box for this node, also pass a close crop
   //    of exactly that feature so the child depicts what the player clicked.
+  const addendum = stateDef ? stateDef.addendum : null;
+
   let imgBuffer;
   if (LIVE) {
+    // Reference images, in attach order: (1) the ROOT island painting as a
+    // master style anchor (always, except for the island itself); (2) the parent
+    // continuity view; (3) a close crop of the clicked feature. Prose numbering
+    // in buildImagePrompt tracks this exact order.
+    const refs = [];
+    let styleAnchor = false;
+    if (nodeId !== 'island') {
+      const anchorPath = store.imagePath(slug, 'island');
+      if (fs.existsSync(anchorPath)) {
+        refs.push(fs.readFileSync(anchorPath));
+        styleAnchor = true;
+      }
+    }
+
     const parent = node.parent ? getNode(node.parent) : null;
     const refPath = parent ? store.imagePath(slug, parent.id) : null;
+    let withContinuity = null;
+    let withCrop = false;
     if (parent && refPath && fs.existsSync(refPath)) {
       const refBuf = fs.readFileSync(refPath);
-      const refs = [refBuf];
+      refs.push(refBuf);
+      withContinuity = parent.name;
       const parentData = store.getNodeData(slug, parent.id);
       const np = parentData && (parentData.navPoints || []).find((p) => p.nodeId === nodeId);
       if (np && np.box) {
         const cropBuf = await cropFeature(refBuf, np.box);
-        if (cropBuf) refs.push(cropBuf);
+        if (cropBuf) {
+          refs.push(cropBuf);
+          withCrop = true;
+        }
       }
-      imgBuffer = await or.generateImageWithReference(
-        buildImagePrompt(node, { withContinuity: parent.name, withCrop: refs.length > 1 }),
-        refs.length > 1 ? refs : refBuf,
-        { model }
-      );
+    }
+
+    const prompt = buildImagePrompt(node, { withContinuity, withCrop, styleAnchor, addendum });
+    if (refs.length) {
+      imgBuffer = await or.generateImageWithReference(prompt, refs, { model });
     } else {
-      imgBuffer = await or.generateImage(buildImagePrompt(node), { model });
+      imgBuffer = await or.generateImage(prompt, { model });
     }
     imgBuffer = await sharp(imgBuffer).resize(1600, 1000, { fit: 'cover' }).jpeg({ quality: 90 }).toBuffer();
   } else {
-    imgBuffer = await mock.mockImage(nodeId, node.name);
+    imgBuffer = await mock.mockImage(imageId, node.name);
   }
-  const image = store.saveImage(slug, nodeId, imgBuffer);
+  const image = store.saveImage(slug, imageId, imgBuffer);
 
   // 2. Build the feature list to locate: nav destinations (children + laterals,
   //    NOT parent) + the resident character + visible objects.
@@ -462,8 +557,8 @@ async function realizeNode(nodeId) {
   }
 
   const data = { image, navPoints, characterHotspot, objectHotspots, interactableHotspot };
-  store.saveNodeData(slug, nodeId, data);
-  console.log(`[realize] ${nodeId} — done (${navPoints.length} navPoints)`);
+  store.saveNodeData(slug, cacheId, data);
+  console.log(`[realize] ${nodeId}${stateName ? `:${stateName}` : ''} — done (${navPoints.length} navPoints)`);
   return data;
 }
 
@@ -471,7 +566,7 @@ async function realizeNode(nodeId) {
 
 function publicScene(nodeId) {
   const node = getNode(nodeId);
-  const data = store.getNodeData(currentSlug(), nodeId);
+  const data = store.getNodeData(currentSlug(), nodeCacheId(nodeId));
   const state = store.getState();
   const cast = castAt(nodeId);
 
@@ -482,6 +577,7 @@ function publicScene(nodeId) {
     name: node.name,
     depth: node.depth,
     parentId: node.parent,
+    region: node.region,
     desc: node.desc,
     ambience: node.ambience,
     image: data.image,
@@ -500,6 +596,37 @@ function publicScene(nodeId) {
         hotspot: data.objectHotspots[o.id],
       })),
   };
+}
+
+// --- Observation of a dead click --------------------------------------------
+// A click that resolves to nothing still returns writing: one sentence about
+// what is precisely at the point. Cached in the node overlay per 0.1 grid cell
+// so repeat clicks are free. LIVE = vision on the crosshair-marked image; MOCK =
+// deterministic authored line. blockedLines survive only as a LIVE-failure fallback.
+
+async function observe(node, data, x, y) {
+  const cellKey = `${Math.round(x * 10)},${Math.round(y * 10)}`;
+  data.obs = data.obs || {};
+  if (data.obs[cellKey]) return data.obs[cellKey];
+
+  let text;
+  if (LIVE) {
+    try {
+      const marked = await markClick(store.imagePath(currentSlug(), nodeImageId(node.id)), x, y);
+      const raw = await or.chatWithImage(observeSystemPrompt(), observeUserPrompt(node), marked);
+      text = String(raw || '').replace(/^["'\s]+|["'\s]+$/g, '').trim();
+      if (!text) text = blockedLine();
+    } catch (err) {
+      console.error('[observe] vision failed, using fallback:', err.message);
+      text = blockedLine();
+    }
+  } else {
+    text = mock.mockObservation(node.id, x, y);
+  }
+
+  data.obs[cellKey] = text;
+  store.saveNodeData(currentSlug(), nodeCacheId(node.id), data);
+  return text;
 }
 
 // --- Shared views ------------------------------------------------------------
@@ -542,11 +669,21 @@ function finishReply(characterId, character, raw) {
 
 function buildCtx(characterId) {
   const chat = store.getChat(characterId);
+  const state = store.getState();
+
+  // World deeds this caretaker would know of, from the persistent world states.
+  const events = [];
+  for (const [nodeId, sn] of Object.entries(state.worldStates || {})) {
+    const e = EVENT_MAP[nodeId] && EVENT_MAP[nodeId][sn];
+    if (e && e.for === characterId) events.push(e.text);
+  }
+
   return {
-    inventory: store.getState().inventory.map((id) => OBJECTS[id]),
-    journalTitles: store.getState().journal.map((id) => CLUES[id].title),
+    inventory: state.inventory.map((id) => OBJECTS[id]),
+    journalTitles: state.journal.map((id) => CLUES[id].title),
     clueGiven: chat.clueGiven,
-    cluesFound: store.getState().journal.length,
+    cluesFound: state.journal.length,
+    events,
   };
 }
 
@@ -659,7 +796,7 @@ app.post('/api/click', async (req, res) => {
     let choice = 'none';
     if (LIVE) {
       try {
-        const marked = await markClick(store.imagePath(currentSlug(), nodeId), x, y);
+        const marked = await markClick(store.imagePath(currentSlug(), nodeImageId(nodeId)), x, y);
         const raw = await or.chatWithImage(clickSystemPrompt(dests), clickUserPrompt(node), marked);
         choice = or.parseJson(raw).choice || 'none';
       } catch (err) {
@@ -673,9 +810,10 @@ app.post('/api/click', async (req, res) => {
     const chosen = dests.find((d) => d.id === choice);
     if (chosen) return move(chosen.id, chosen.kind);
 
-    // (5) Nothing there.
+    // (5) Nothing there — the dead click becomes an observation of what is
+    //     precisely at the click point (cached in the overlay per cell).
     console.log(`[click] ${nodeId} — blocked`);
-    return res.json({ result: 'blocked', message: blockedLine() });
+    return res.json({ result: 'blocked', message: await observe(node, data, x, y) });
   } catch (err) {
     console.error('click failed:', err);
     res.status(500).json({ error: err.message });
@@ -699,27 +837,99 @@ app.post('/api/take', (req, res) => {
   }
 });
 
+/** Shared finale logic: locked/unlocked outcome for a node's interactable. */
+function interactResult(node) {
+  const results = INTERACTION_RESULTS[node.id];
+  const state = store.getState();
+  const has = state.inventory.includes(node.interactable.requires);
+
+  if (has) {
+    const firstTime = !state.ended; // finale plays only the first time
+    store.setEnded();
+    console.log(`[interact] ${node.id} — unlocked${firstTime ? ' (THE ANSWERING)' : ''}`);
+    return { title: results.unlocked.title, text: results.unlocked.text, ending: firstTime };
+  }
+  console.log(`[interact] ${node.id} — locked`);
+  return { title: results.locked.title, text: results.locked.text, ending: false };
+}
+
 app.post('/api/interact', (req, res) => {
   try {
     const { nodeId } = req.body;
     const node = getNode(nodeId);
     if (!node) return res.status(404).json({ error: 'unknown node' });
     if (!node.interactable) return res.status(400).json({ error: 'nothing to interact with here' });
-
-    const results = INTERACTION_RESULTS[nodeId];
-    const state = store.getState();
-    const has = state.inventory.includes(node.interactable.requires);
-
-    if (has) {
-      const firstTime = !state.ended; // finale plays only the first time
-      store.setEnded();
-      console.log(`[interact] ${nodeId} — unlocked${firstTime ? ' (THE ANSWERING)' : ''}`);
-      return res.json({ title: results.unlocked.title, text: results.unlocked.text, ending: firstTime });
-    }
-    console.log(`[interact] ${nodeId} — locked`);
-    return res.json({ title: results.locked.title, text: results.locked.text, ending: false });
+    return res.json(interactResult(node));
   } catch (err) {
     console.error('interact failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Use a carried object at the current node. Authored uses (lib/world.js USES)
+// may consume the object, change the node's world state (repainting the scene),
+// grant a caretaker's clue, and carry a one-off journalNote toast. The finale
+// key at the tuning room routes to the interact logic. Works in mock + live.
+app.post('/api/use', async (req, res) => {
+  try {
+    const { nodeId, objectId } = req.body;
+    const node = getNode(nodeId);
+    if (!node) return res.status(404).json({ error: 'unknown node' });
+    if (!OBJECTS[objectId]) return res.status(400).json({ error: 'no such object' });
+    if (!store.getState().inventory.includes(objectId)) {
+      return res.status(400).json({ error: 'you are not carrying that' });
+    }
+
+    const key = `${objectId}@${nodeId}`;
+
+    // The tuning key at the tuning room IS the finale — same outcome as /api/interact.
+    if (key === 'tuning_key@tuningroom' && node.interactable) {
+      return res.json(interactResult(node));
+    }
+
+    const use = USES[key];
+    if (!use) {
+      return res.json({ result: 'nothing', text: refusalLine() });
+    }
+
+    // Grant a caretaker's clue (like the chat route does) if not already given.
+    let newClue = null;
+    if (use.grantsClue) {
+      const character = CAST[use.grantsClue];
+      const chat = store.getChat(character.id);
+      if (!chat.clueGiven) {
+        store.markClueGiven(character.id);
+        store.addClue(character.clue);
+        const c = CLUES[character.clue];
+        newClue = { id: character.clue, title: c.title, text: c.text };
+      }
+    }
+
+    if (use.consumes) store.removeObject(objectId);
+
+    // Record the world state: a scene-changing state (repaints) or a lightweight
+    // event marker (lets the caretaker acknowledge it in chat, no repaint).
+    let scene = null;
+    if (use.stateChange) {
+      store.setWorldState(nodeId, use.stateChange);
+      await realizeNode(nodeId); // paint the new state before serving it
+      scene = publicScene(nodeId);
+    } else if (use.event) {
+      store.setWorldState(nodeId, use.event);
+    }
+
+    console.log(`[use] ${key}${use.consumes ? ' (consumed)' : ''}${newClue ? ' (+clue)' : ''}`);
+    return res.json({
+      result: 'used',
+      title: use.title,
+      text: use.text,
+      consumed: Boolean(use.consumes),
+      journalNote: use.journalNote || null,
+      newClue: newClue || null,
+      scene: scene || null,
+    });
+  } catch (err) {
+    console.error('use failed:', err);
     res.status(500).json({ error: err.message });
   }
 });

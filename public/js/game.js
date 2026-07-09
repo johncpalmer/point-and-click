@@ -25,6 +25,8 @@
     veilLines: $('veil-lines'),
     sceneName: $('scene-name'),
     depthPips: $('depth-pips'),
+    eq: $('eq'),
+    captions: $('captions'),
     ascend: $('ascend-btn'),
     toast: $('toast'),
     ripple: $('ripple'),
@@ -78,6 +80,9 @@
     overHotspot: false,
     live: false,
     lastClick: null, // normalized {x,y} of the click that started a travel
+    armedItem: null, // item picked up from the satchel, awaiting a stage click
+    lastDepth: -1, // to pop depth pips only when depth actually changes
+    pendingSceneRefresh: null, // scene to re-show once the result card closes
   };
 
   const OBJECT_GLYPHS = ['🗝', '🔮', '🐚', '🪶', '🧭', '📜', '🫙', '🪨', '🔔', '🕯'];
@@ -219,13 +224,18 @@
     state.scene = scene;
     el.sceneName.textContent = scene.name;
 
-    // depth pips
+    // depth pips — the lit ones pop briefly when we actually change depth
+    const depthChanged = scene.depth !== state.lastDepth;
     el.depthPips.innerHTML = '';
     for (let d = 0; d <= scene.maxDepth; d++) {
       const pip = document.createElement('i');
-      if (d <= scene.depth) pip.classList.add('lit');
+      if (d <= scene.depth) {
+        pip.classList.add('lit');
+        if (depthChanged) pip.classList.add('pop');
+      }
       el.depthPips.appendChild(pip);
     }
+    state.lastDepth = scene.depth;
     el.ascend.hidden = !scene.parentId;
 
     renderHotspots(scene);
@@ -239,6 +249,7 @@
     el.cursor.classList.remove('hot');
 
     IslandAudio.setAmbience(scene.ambience);
+    IslandAudio.setRegion?.(scene.region); // audio agent owns the songs per region
     IslandAudio.chime();
     veilOff();
 
@@ -382,6 +393,10 @@
       const glyph = found.kind === 'deeper' ? '▾ ' : '▸ ';
       showLabel(glyph + found.name);
       el.cursor.classList.add('hot');
+    } else if (state.armedItem) {
+      // armed but pointing at open ground: keep the USE prompt visible
+      showArmedLabel();
+      el.cursor.classList.remove('hot');
     } else {
       hideLabel();
       el.cursor.classList.remove('hot');
@@ -421,6 +436,12 @@
     el.ripple.classList.add('go');
     IslandAudio.click();
 
+    // armed with an item? a stage click USES it here instead of travelling.
+    if (state.armedItem) {
+      await useArmedItem(x, y);
+      return;
+    }
+
     state.busy = true;
     hideLabel();
     el.cursor.classList.remove('hot');
@@ -437,8 +458,9 @@
         clearTimeout(slowReveal);
         veilOff();
         IslandAudio.denied();
-        // prefer the server's blocked flavor line; fall back to terse system copy
-        toast(out.message || 'NO ROUTE');
+        // a blocked click is now an OBSERVATION — the island whispering back.
+        // Show it as a floating in-scene caption at the point, not a system toast.
+        floatingCaption(out.message || 'Nothing answers there.', x, y);
         return;
       }
 
@@ -459,6 +481,7 @@
 
   async function ascend() {
     if (state.busy || !state.scene || !state.scene.parentId) return;
+    disarmItem();
     state.lastClick = null; // button ascend has no click point → center origin
     state.busy = true;
     hideLabel();
@@ -486,16 +509,101 @@
   // ------------------------------------------------------------------ toast
 
   let toastTimer = null;
-  function toast(text) {
+  function toast(text, opts) {
+    el.toast.classList.toggle('clue', !!(opts && opts.clue));
     el.toast.textContent = text;
     el.toast.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => (el.toast.hidden = true), 3400);
   }
 
+  // ------------------------------------------------------------------ captions
+
+  // A quiet italic line that fades in at a point in the scene, holds, fades out.
+  // Used for the island's OBSERVATIONS (blocked clicks) and for 'nothing' USE
+  // results — text with a soft dark halo, no plate. Clamped inside the stage.
+  function floatingCaption(text, nx, ny) {
+    if (!text) return;
+    const cx = Math.min(Math.max(nx, 0.16), 0.84);
+    const cy = Math.min(Math.max(ny, 0.12), 0.88);
+    const d = document.createElement('div');
+    d.className = 'caption';
+    d.textContent = text;
+    d.style.left = `${cx * 100}%`;
+    d.style.top = `${cy * 100}%`;
+    el.captions.appendChild(d);
+    requestAnimationFrame(() => d.classList.add('show'));
+    setTimeout(() => {
+      d.classList.remove('show');
+      setTimeout(() => d.remove(), 900);
+    }, 4000);
+  }
+
+  // ------------------------------------------------------------------ USE mode
+
+  function armedLabelText() {
+    return `${state.armedItem.name} — CLICK TO USE · ESC TO CANCEL`;
+  }
+
+  function showArmedLabel() {
+    if (state.armedItem) showLabel(armedLabelText());
+  }
+
+  function armItem(item) {
+    state.armedItem = item;
+    el.cursor.classList.add('armed');
+    showArmedLabel();
+    IslandAudio.blip();
+  }
+
+  function disarmItem() {
+    if (!state.armedItem) return;
+    state.armedItem = null;
+    el.cursor.classList.remove('armed');
+    hideLabel();
+  }
+
+  // Fired by a stage click while an item is armed: POST /api/use.
+  async function useArmedItem(nx, ny) {
+    const item = state.armedItem;
+    if (!item || !state.scene) return;
+    state.busy = true;
+    hideLabel();
+    try {
+      const out = await api('/api/use', { nodeId: state.scene.id, objectId: item.id });
+
+      if (out.result === 'nothing') {
+        // no effect here — whisper the reason at the point and STAY armed
+        floatingCaption(out.text || 'Nothing happens.', nx, ny);
+        IslandAudio.denied();
+        showArmedLabel();
+        return;
+      }
+
+      // result 'used': the action landed
+      disarmItem();
+      IslandAudio.chime();
+      if (out.consumed) {
+        state.inventory = state.inventory.filter((i) => i.id !== item.id);
+        renderInventory();
+      }
+      if (out.newClue) handleNewClue(out.newClue);
+      // if the world changed, re-show it once the player closes the result card
+      if (out.scene) state.pendingSceneRefresh = out.scene;
+      showReadOnlyCard(out.title || item.name, out.text || '');
+    } catch (err) {
+      IslandAudio.denied();
+      toast('IT WILL NOT ANSWER, NOT YET');
+      console.error(err);
+    } finally {
+      state.busy = false;
+    }
+  }
+
   // ------------------------------------------------------------------ objects / inventory
 
   function openObjectCard(obj) {
+    disarmItem();
     state.pendingObject = obj;
     el.objCard.classList.remove('inspect');
     el.objLeave.textContent = 'LEAVE';
@@ -524,6 +632,17 @@
   function closeObjectCard() {
     state.pendingObject = null;
     el.objCard.hidden = true;
+  }
+
+  // Close the result/pickup card. If a USE changed the world, re-show the scene
+  // now (no veil — let the resolve wipe play, the world visibly changed).
+  function dismissObjectCard() {
+    closeObjectCard();
+    if (state.pendingSceneRefresh) {
+      const sc = state.pendingSceneRefresh;
+      state.pendingSceneRefresh = null;
+      showScene(sc, { direction: 'lateral' });
+    }
   }
 
   async function takeObject() {
@@ -568,9 +687,19 @@
       const desc = document.createElement('span');
       desc.className = 'satchel-desc';
       desc.textContent = item.description;
+      const use = document.createElement('button');
+      use.className = 'satchel-use';
+      use.textContent = 'USE';
+      use.title = `Use ${item.name}`;
+      use.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeSatchel();
+        armItem(item);
+      });
       row.appendChild(g);
       row.appendChild(name);
       row.appendChild(desc);
+      row.appendChild(use);
       row.addEventListener('click', (e) => {
         e.stopPropagation();
         openInventoryItem(item);
@@ -580,6 +709,7 @@
   }
 
   function openSatchel() {
+    disarmItem();
     el.satchel.hidden = false;
     IslandAudio.blip();
   }
@@ -697,6 +827,7 @@
   }
 
   function openOracle() {
+    disarmItem();
     el.oracle.hidden = false;
     IslandAudio.blip();
     askOracle('Where am I and what should I do next?');
@@ -742,6 +873,7 @@
   }
 
   function openJournal() {
+    disarmItem();
     el.journal.hidden = false;
     IslandAudio.blip();
   }
@@ -761,7 +893,7 @@
     if (!clue) return;
     state.journal.push(clue);
     renderJournal();
-    toast(`A fragment settles into your journal — ${clue.title}`);
+    toast(`A fragment settles into your journal — ${clue.title}`, { clue: true });
     IslandAudio.pickup();
     pulseJournalBtn();
   }
@@ -801,6 +933,7 @@
   async function openChat() {
     const scene = state.scene;
     if (!scene || !scene.character) return;
+    disarmItem();
     el.chat.hidden = false;
     el.chat.classList.remove('ended');
     el.chatName.textContent = scene.character.name;
@@ -951,6 +1084,13 @@
   el.painterSelect.addEventListener('change', changePainter);
   el.stage.addEventListener('click', handleStageClick);
   el.stage.addEventListener('mousemove', trackCursor);
+  // right-click disarms an armed item without travelling
+  el.stage.addEventListener('contextmenu', (e) => {
+    if (state.armedItem) {
+      e.preventDefault();
+      disarmItem();
+    }
+  });
   el.ascend.addEventListener('click', (e) => {
     e.stopPropagation();
     ascend();
@@ -965,7 +1105,7 @@
   });
   el.objLeave.addEventListener('click', (e) => {
     e.stopPropagation();
-    closeObjectCard();
+    dismissObjectCard();
   });
   el.objCard.addEventListener('click', (e) => e.stopPropagation());
   el.chat.addEventListener('click', (e) => e.stopPropagation());
@@ -1008,7 +1148,8 @@
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-      closeObjectCard();
+      disarmItem();
+      dismissObjectCard();
       closeChat();
       closeJournal();
       closeSatchel();
@@ -1022,4 +1163,40 @@
       scan();
     }
   });
+
+  // ------------------------------------------------------------------ visualizer
+
+  // Tiny 5-bar equalizer driven by IslandAudio.getLevels() (5 values 0..1).
+  // The audio agent may add getLevels late, so we re-check each frame and hide
+  // the element until it's there. Loop pauses while the tab is hidden.
+  (function startEq() {
+    if (!el.eq) return;
+    const bars = Array.from(el.eq.querySelectorAll('i'));
+    let raf = null;
+
+    function frame() {
+      const levels = (typeof IslandAudio !== 'undefined' && typeof IslandAudio.getLevels === 'function')
+        ? IslandAudio.getLevels()
+        : null;
+      if (levels && levels.length) {
+        el.eq.hidden = false;
+        for (let i = 0; i < bars.length; i++) {
+          const v = Math.max(0, Math.min(1, levels[i] || 0));
+          bars[i].style.height = `${2 + v * 12}px`; // 2..14px
+        }
+      } else {
+        el.eq.hidden = true;
+      }
+      raf = requestAnimationFrame(frame);
+    }
+
+    function stop() { if (raf) { cancelAnimationFrame(raf); raf = null; } }
+    function go() { if (!raf) raf = requestAnimationFrame(frame); }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) stop();
+      else go();
+    });
+    go();
+  })();
 })();

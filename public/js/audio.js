@@ -347,225 +347,526 @@ const IslandAudio = (() => {
     o.stop(t + 0.35);
   }
 
-  // ---------------- generative theme music ----------------
-  // A quiet "Life Sim"-flavoured bed of music that lives UNDER the ambience:
-  // glassy detuned-saw pad, FM bell arps through a ping-pong delay, a round
-  // sub, and occasional sparkles. 76 BPM, key of A major, an 8-bar loop of
-  // four 2-bar chords: Amaj9 -> F#m11 -> Dmaj9 -> Esus4(add9).
+  // ---------------- authored region songs ----------------
+  // Seven deterministic, looping songs in the AG Cook "Life Sim" idiom
+  // (sincere stepwise hooks, one leap per phrase, phrase-ends on chord tones).
+  // One per island region + the title/overworld, each in a DIFFERENT key and
+  // tempo so the player recognises a region on return. Production: a bright,
+  // soft-clipped square+saw lead with portamento glides + vibrato; pads & sub
+  // duck on every beat (sidechain pump); DX plucks for arps through a ping-pong
+  // delay; a clean 0.3 music bus into master. Note data is fixed — nothing is
+  // randomised. See musicStart / musicStop / setRegion / getLevels.
 
-  const M_TEMPO = 76;
-  const M_BEAT = 60 / M_TEMPO;       // 0.78947 s
-  const M_8TH = M_BEAT / 2;          // 0.39474 s (scheduler grid)
-  const M_BAR = M_BEAT * 4;          // 3.15789 s
-  const M_CHORD = M_BAR * 2;         // 6.31579 s (2 bars per chord)
-  const M_LOOP_STEPS = 64;           // 8 bars * 8 eighth-notes
   const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
-  // MIDI note numbers. pad = sustained voices, sub = round bass root,
-  // arp = pentatonic-safe pool the pluck draws from.
-  const PROG = [
-    { // Amaj9 :  A3 E4 G#4 B4  /  A2  /  A4 C#5 E5 F#5 A5
-      pad: [57, 64, 68, 71], sub: 45, arp: [69, 73, 76, 78, 81] },
-    { // F#m11 : F#3 C#4 E4 A4  /  F#2 /  F#4 A4 B4 C#5 E5
-      pad: [54, 61, 64, 69], sub: 42, arp: [66, 69, 71, 73, 76] },
-    { // Dmaj9 :  D3 A3 C#4 F#4 /  D2  /  D5 E5 F#5 A5 C#6
-      pad: [50, 57, 61, 66], sub: 38, arp: [74, 76, 78, 81, 85] },
-    { // Esus4(add9) : E3 A3 B3 F#4 / E2 / E5 F#5 A5 B5 C#6
-      pad: [52, 57, 59, 66], sub: 40, arp: [76, 78, 81, 83, 85] },
-  ];
+  // 16th-note grid. Every authored lead duration is a multiple of 0.5 beat, so
+  // all events land exactly on this grid (0.25 beat).
+  const STEPS_PER_BEAT = 4;
+  const STEPS_PER_BAR = 16;
+
+  // Song form. Every song: 8 bars, 2 bars per chord (4 chord slots). `lead`
+  // durations are in beats and MUST sum to bars*4. `arp.div` = subdivisions per
+  // bar (8 or 16); `arp.seq` indexes into `arpTones[slot]` (-1 = rest).
+  const SONGS = {
+    // island — title / overworld. A major, 104 BPM. Arrival, open sky.
+    island: {
+      bpm: 104, bars: 8, barsPerChord: 2,
+      chords: [[57, 61, 64, 69], [56, 59, 64, 68], [54, 57, 61, 64], [50, 54, 57, 62]], // A  E/G#  F#m7  D
+      sub: [45, 44, 42, 38],                          // A2 G#2 F#2 D2
+      arpTones: [[69, 73, 76, 81], [68, 71, 76, 80], [66, 69, 73, 76], [62, 66, 69, 74]],
+      arp: { div: 8, seq: [0, 1, 2, 3, 0, 1, 2, 3] }, // 8ths, chord tones low->high
+      lead: [
+        [76, 1.5], [73, 0.5], [71, 1], [69, 1],       // E5 C#5 B4 A4
+        [71, 1], [73, 1], [76, 2],                    // B4 C#5 E5
+        [78, 1.5], [76, 0.5], [73, 1], [71, 1],       // F#5 E5 C#5 B4
+        [69, 1], [71, 1], [73, 2],                    // A4 B4 C#5
+        [73, 1.5], [69, 0.5], [68, 1], [66, 1],       // C#5 A4 G#4 F#4  (phrase a 3rd down)
+        [68, 1], [69, 1], [73, 2],                    // G#4 A4 C#5
+        [76, 1.5], [74, 0.5], [71, 1], [69, 1],       // E5 D5 B4 A4
+        [66, 1], [68, 1], [69, 2],                    // F#4 G#4 A4
+      ],
+    },
+    // harbor — D mixolydian (C naturals in the arp), 92 BPM. Salt, patience, rocking.
+    harbor: {
+      bpm: 92, bars: 8, barsPerChord: 2, swing: 0.08,
+      chords: [[50, 54, 57, 62], [48, 52, 55, 60], [47, 50, 55, 59], [50, 54, 57, 62]], // D  C  G/B  D
+      sub: [38, 36, 35, 38],                          // D2 C2 B1 D2
+      arpTones: [[62, 66, 69, 72], [60, 64, 67, 72], [59, 62, 67, 71], [62, 66, 69, 72]], // C-naturals = mixolydian color
+      arp: { div: 8, seq: [0, 1, 2, 3, 2, 1, 2, 3] }, // swaying
+      lead: [
+        [69, 2], [67, 1], [66, 1],                    // A4 G4 F#4
+        [67, 1.5], [64, 0.5], [62, 2],                // G4 E4 D4
+        [null, 1], [66, 1], [67, 1], [69, 1],         // rest F#4 G4 A4
+        [72, 1.5], [71, 0.5], [69, 2],                // C5 B4 A4
+        [69, 2], [67, 1], [66, 1],
+        [67, 1.5], [64, 0.5], [62, 2],
+        [null, 1], [66, 1], [67, 1], [69, 1],
+        [72, 1.5], [74, 0.5], [76, 2],                // C5 D5 E5  (ending varies upward)
+      ],
+    },
+    // ringwood — F# minor pentatonic, 84 BPM. Music-box: sparse high DX plucks,
+    // lots of delay, long rests. No square lead (timbral identity).
+    ringwood: {
+      bpm: 84, bars: 8, barsPerChord: 2, leadType: 'pluck',
+      chords: [[54, 57, 61, 66], [50, 54, 57, 62], [57, 61, 64, 69], [49, 52, 56, 61]], // F#m  D  A  C#m
+      sub: [42, 38, 45, 37],                          // F#2 D2 A2 C#2
+      arpTones: [[66, 69, 73, 78], [62, 66, 69, 74], [64, 69, 73, 76], [61, 64, 68, 73]],
+      arp: { div: 8, seq: [0, -1, 2, -1, 1, -1, 3, -1] }, // sparse
+      lead: [
+        [78, 1], [null, 1], [81, 1], [null, 1],       // F#5 . A5 .
+        [85, 2], [null, 2],                           // C#6 .
+        [83, 1], [81, 1], [78, 1], [null, 1],         // B5 A5 F#5 .
+        [76, 2], [null, 2],                           // E5 .
+        [81, 1], [null, 1], [85, 1], [null, 1],       // A5 . C#6 .
+        [88, 2], [85, 1], [81, 1],                    // E6 C#6 A5
+        [83, 1], [81, 1], [78, 1], [76, 1],           // B5 A5 F#5 E5
+        [78, 2], [null, 2],                           // F#5 .
+      ],
+    },
+    // lake — A maj9 / D maj9, 72 BPM half-time. Dreamy: long 2-3 beat notes so
+    // the portamento glides are very audible; sub prominent.
+    lake: {
+      bpm: 72, bars: 8, barsPerChord: 2,
+      chords: [[57, 64, 68, 71], [50, 57, 61, 64], [57, 64, 68, 71], [50, 57, 61, 64]], // Amaj9  Dmaj9
+      sub: [45, 38, 45, 38],                          // A2 D2 (prominent)
+      arpTones: [[64, 68, 71, 73], [57, 61, 64, 66], [64, 68, 71, 73], [57, 61, 64, 66]],
+      arp: { div: 8, seq: [0, -1, 1, -1, 2, -1, 3, -1] },
+      lead: [
+        [76, 3], [73, 1],                             // E5 (long) C#5
+        [74, 2], [71, 2],                             // D5 B4
+        [69, 3], [73, 1],                             // A4 (long) C#5
+        [76, 4],                                      // E5 (held)
+        [78, 2], [76, 2],                             // F#5 E5
+        [73, 3], [74, 1],                             // C#5 (long) D5
+        [69, 2], [71, 2],                             // A4 B4
+        [73, 4],                                      // C#5 (held, chord tone)
+      ],
+    },
+    // peaks — E major, 116 BPM, brightest & fastest. Lead doubled an octave up
+    // at low gain; wind-swept upward phrases.
+    peaks: {
+      bpm: 116, bars: 8, barsPerChord: 2, leadOctaveDouble: true,
+      chords: [[52, 56, 59, 64], [47, 51, 54, 59], [49, 52, 56, 61], [45, 49, 52, 57]], // E  B  C#m  A
+      sub: [40, 35, 37, 33],                          // E2 B1 C#2 A1
+      arpTones: [[64, 68, 71, 76], [59, 63, 66, 71], [61, 64, 68, 73], [57, 61, 64, 69]],
+      arp: { div: 16, seq: [0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3] },
+      lead: [
+        [64, 1], [66, 1], [68, 1], [71, 1],           // E4 F#4 G#4 B4  (rising)
+        [73, 2], [71, 2],                             // C#5 B4
+        [68, 1], [71, 1], [73, 1], [76, 1],           // G#4 B4 C#5 E5
+        [78, 2], [76, 2],                             // F#5 E5
+        [71, 1], [73, 1], [76, 1], [78, 1],           // B4 C#5 E5 F#5
+        [80, 2], [78, 2],                             // G#5 F#5
+        [76, 1], [78, 1], [80, 1], [83, 1],           // E5 F#5 G#5 B5  (sweep up)
+        [88, 2], [76, 2],                             // E6 (peak) E5
+      ],
+    },
+    // chancel — C# minor, 80 BPM. Pad-forward glass choir (stacked detuned
+    // triangles); lead sparse & bell-like; a low toll on bar 1 of the loop.
+    chancel: {
+      bpm: 80, bars: 8, barsPerChord: 2, padType: 'triangle', toll: true,
+      chords: [[49, 56, 61, 64], [45, 52, 57, 61], [52, 59, 64, 68], [47, 54, 59, 63]], // C#m  A  E  B
+      sub: [37, 33, 40, 35],                          // C#2 A1 E2 B1
+      arpTones: [[61, 64, 68, 73], [57, 61, 64, 69], [64, 68, 71, 76], [59, 63, 66, 71]],
+      arp: { div: 8, seq: [0, -1, -1, 1, -1, 2, -1, -1] }, // sparse bell
+      lead: [
+        [73, 2], [null, 2],                           // C#5 .
+        [76, 1], [71, 1], [null, 2],                  // E5 B4 .
+        [80, 2], [76, 1], [73, 1],                    // G#5 E5 C#5
+        [71, 2], [null, 2],                           // B4 .
+        [73, 2], [76, 1], [78, 1],                    // C#5 E5 F#5
+        [80, 2], [null, 2],                           // G#5 .
+        [78, 1], [76, 1], [73, 1], [71, 1],           // F#5 E5 C#5 B4
+        [73, 4],                                      // C#5 (held, tonic)
+      ],
+    },
+    // terraces — D lydian (G#), 112 BPM, bounciest. 16th-note arp driving
+    // throughout; playful syncopated lead with several portamento leaps.
+    terraces: {
+      bpm: 112, bars: 8, barsPerChord: 2,
+      chords: [[50, 54, 57, 62], [52, 56, 59, 64], [57, 61, 64, 69], [47, 50, 54, 59]], // D  E  A  Bm
+      sub: [38, 40, 33, 35],                          // D2 E2 A1 B1
+      arpTones: [[62, 66, 69, 74], [64, 68, 71, 76], [69, 73, 76, 81], [59, 62, 66, 71]],
+      arp: { div: 16, seq: [0, 1, 2, 3, 2, 3, 0, 1, 0, 1, 2, 3, 2, 3, 1, 0] },
+      lead: [
+        [66, 1], [69, 0.5], [73, 0.5], [78, 1], [73, 1],       // F#4 A4 C#5 F#5(leap) C#5
+        [74, 1.5], [71, 0.5], [69, 2],                         // D5 B4 A4
+        [69, 0.5], [73, 0.5], [76, 1], [73, 0.5], [69, 0.5], [66, 1], // A4 C#5 E5 C#5 A4 F#4
+        [68, 2], [62, 2],                                      // G#4 (lydian color) D4
+        [66, 1], [69, 0.5], [73, 0.5], [80, 1], [73, 1],       // F#4 A4 C#5 G#5(leap) C#5
+        [78, 1.5], [76, 0.5], [73, 2],                         // F#5 E5 C#5
+        [73, 0.5], [76, 0.5], [78, 1], [76, 0.5], [73, 0.5], [69, 1], // C#5 E5 F#5 E5 C#5 A4
+        [74, 2], [62, 2],                                      // D5 D4 (tonic)
+      ],
+    },
+  };
+
+  // Precompute per-song loop length + lead events keyed by their start step.
+  function prepareSong(song) {
+    if (song._prepared) return song;
+    song._loopSteps = song.bars * STEPS_PER_BAR;
+    const byStep = {};
+    let beat = 0;
+    for (const [midi, dur] of song.lead) {
+      if (midi !== null) {
+        byStep[Math.round(beat * STEPS_PER_BEAT)] = { midi, durSteps: Math.round(dur * STEPS_PER_BEAT) };
+      }
+      beat += dur;
+    }
+    song._leadByStep = byStep;
+    song._leadBeats = beat; // must equal bars*4
+    song._prepared = true;
+    return song;
+  }
+
+  // gentle tanh soft-clip for the lead — shared, built once.
+  let leadCurve = null;
+  function tanhCurve() {
+    if (leadCurve) return leadCurve;
+    const n = 1024;
+    leadCurve = new Float32Array(n);
+    for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; leadCurve[i] = Math.tanh(2.2 * x); }
+    return leadCurve;
+  }
 
   let musicRunning = false;
   let musicBus = null, duckGain = null;
-  let padFilter = null, padGain = null, subGain = null;
-  let arpGain = null, arpSend = null, wetGain = null;
-  let delayL = null, delayR = null, mLfo = null;
-  let schedulerTimer = null, sparkleAlive = false;
-  let nextStepTime = 0, mStep = 0;
-  let restProb = 0.35, currentChord = PROG[0];
+  let analyser = null, analyserData = null;
+  let instances = [];            // active song instances (1 normally, 2 mid-crossfade)
+  let schedulerTimer = null;
+  let currentRegion = 'island';
 
-  // glassy sustained pad: two slightly detuned saws per chord tone.
-  function padChord(chord, t) {
-    const dur = M_CHORD;
-    chord.pad.forEach((m) => {
+  // Build the full node graph + scheduler state for one song. Each instance is
+  // self-contained so two can play at once during a crossfade.
+  function createInstance(name, initialGain) {
+    const song = prepareSong(SONGS[name]);
+    const g = ctx.createGain();
+    g.gain.value = initialGain;
+    g.connect(musicBus);
+
+    // pad + sub share the sidechain "pump" gain (ducks -4 dB on every beat)
+    const pump = ctx.createGain();
+    pump.gain.value = 1;
+    pump.connect(g);
+
+    const padFilter = ctx.createBiquadFilter();
+    padFilter.type = 'lowpass';
+    padFilter.frequency.value = song.padType === 'triangle' ? 3000 : 2200;
+    padFilter.Q.value = 0.6;
+    const padGain = ctx.createGain();
+    padGain.gain.value = song.padType === 'triangle' ? 0.62 : 0.5; // glass choir sits forward
+    padFilter.connect(padGain).connect(pump);
+
+    const subGain = ctx.createGain();
+    subGain.gain.value = 0.6;
+    subGain.connect(pump);
+
+    // lead: square+saw pair -> tanh waveshaper -> leadGain
+    const shaper = ctx.createWaveShaper();
+    shaper.curve = tanhCurve();
+    const leadGain = ctx.createGain();
+    leadGain.gain.value = 0.16;
+    shaper.connect(leadGain).connect(g);
+
+    // arp DX plucks: dry + ping-pong feedback delay
+    const arpGain = ctx.createGain();
+    arpGain.gain.value = 0.4;
+    arpGain.connect(g);
+    const spb = 60 / song.bpm;
+    const delayL = ctx.createDelay(1);
+    const delayR = ctx.createDelay(1);
+    delayL.delayTime.value = spb * 0.75; // dotted-8th, tempo-locked
+    delayR.delayTime.value = spb * 0.75;
+    const fb = ctx.createGain();
+    fb.gain.value = 0.34;
+    const panL = ctx.createStereoPanner(); panL.pan.value = -0.5;
+    const panR = ctx.createStereoPanner(); panR.pan.value = 0.5;
+    const wet = ctx.createGain();
+    wet.gain.value = song.leadType === 'pluck' ? 0.38 : 0.28; // ringwood wants more delay
+    delayL.connect(panL).connect(wet);
+    delayL.connect(delayR);
+    delayR.connect(panR).connect(wet);
+    delayR.connect(fb).connect(delayL);
+    wet.connect(g);
+    const arpSend = ctx.createGain();
+    arpSend.gain.value = 1;
+    arpSend.connect(delayL);
+
+    return {
+      name, song,
+      songGain: g, pump, padFilter, padGain, subGain,
+      shaper, leadGain, arpGain, arpSend,
+      delayL, delayR, fb, panL, panR, wet,
+      step: 0, nextStepTime: 0, prevLeadFreq: 0, alive: true,
+    };
+  }
+
+  function retireInstance(inst) {
+    inst.alive = false;
+    instances = instances.filter((x) => x !== inst);
+    [inst.songGain, inst.pump, inst.padFilter, inst.padGain, inst.subGain, inst.shaper,
+     inst.leadGain, inst.arpGain, inst.arpSend, inst.delayL, inst.delayR, inst.fb,
+     inst.panL, inst.panR, inst.wet].forEach((n) => { try { n.disconnect(); } catch (e) { /* ignore */ } });
+  }
+
+  // --- voices ---
+
+  function playPad(inst, slot, t) {
+    const song = inst.song;
+    const dur = (60 / song.bpm) * 4 * song.barsPerChord; // seconds this chord holds
+    const triangle = song.padType === 'triangle';
+    const detunes = triangle ? [-9, 0, 9] : [-7, 7]; // stacked triangles = glass choir
+    const lvl = triangle ? 0.036 : 0.05;
+    for (const m of song.chords[slot]) {
       const f = mtof(m);
-      [-7, 7].forEach((cents) => {
+      for (const cents of detunes) {
         const o = ctx.createOscillator();
-        o.type = 'sawtooth';
+        o.type = triangle ? 'triangle' : 'sawtooth';
         o.frequency.value = f;
         o.detune.value = cents;
         const g = ctx.createGain();
+        const atk = Math.min(1.8, dur * 0.32);
         g.gain.setValueAtTime(0.0001, t);
-        g.gain.linearRampToValueAtTime(0.06, t + 2.2);    // long attack
-        g.gain.setValueAtTime(0.06, t + dur - 0.3);        // hold
-        g.gain.linearRampToValueAtTime(0.0001, t + dur + 1.8); // long release, overlaps next chord
-        o.connect(g).connect(padFilter);
+        g.gain.linearRampToValueAtTime(lvl, t + atk);
+        g.gain.setValueAtTime(lvl, t + dur - 0.2);
+        g.gain.linearRampToValueAtTime(0.0001, t + dur + 1.2); // overlaps next chord
+        o.connect(g).connect(inst.padFilter);
         o.start(t);
-        o.stop(t + dur + 2);
-      });
-    });
+        o.stop(t + dur + 1.4);
+      }
+    }
   }
 
-  // soft round sub sine on the chord root.
-  function subNote(chord, t) {
-    const dur = M_CHORD;
+  function playSub(inst, slot, t) {
+    const song = inst.song;
+    const dur = (60 / song.bpm) * 4 * song.barsPerChord;
     const o = ctx.createOscillator();
     o.type = 'sine';
-    o.frequency.value = mtof(chord.sub);
+    o.frequency.value = mtof(song.sub[slot]);
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(0.25, t + 1.4);
-    g.gain.setValueAtTime(0.25, t + dur - 0.5);
-    g.gain.linearRampToValueAtTime(0.0001, t + dur + 0.8);
-    o.connect(g).connect(subGain);
+    g.gain.linearRampToValueAtTime(0.26, t + Math.min(1.2, dur * 0.25));
+    g.gain.setValueAtTime(0.26, t + dur - 0.3);
+    g.gain.linearRampToValueAtTime(0.0001, t + dur + 0.6);
+    o.connect(g).connect(inst.subGain);
     o.start(t);
-    o.stop(t + dur + 1);
+    o.stop(t + dur + 0.8);
   }
 
-  // FM-ish bell pluck: sine carrier, sine modulator with fast-decaying index.
-  function pluck(freq, t, vel, decay) {
+  // FM bell pluck (sine carrier, 2:1 modulator, fast-decaying index) -> arp bus + delay.
+  function pluck(inst, freq, t, vel, decay) {
     decay = decay || 0.45;
-    const car = ctx.createOscillator();
-    car.type = 'sine';
-    car.frequency.value = freq;
-    const mod = ctx.createOscillator();
-    mod.type = 'sine';
-    mod.frequency.value = freq * 2;               // bell-ish 2:1 ratio
-    const modDepth = ctx.createGain();
-    modDepth.gain.setValueAtTime(freq * 2.5, t);  // bright transient
-    modDepth.gain.exponentialRampToValueAtTime(freq * 0.05, t + decay);
-    mod.connect(modDepth).connect(car.frequency);
+    const car = ctx.createOscillator(); car.type = 'sine'; car.frequency.value = freq;
+    const mod = ctx.createOscillator(); mod.type = 'sine'; mod.frequency.value = freq * 2;
+    const md = ctx.createGain();
+    md.gain.setValueAtTime(freq * 2.5, t);
+    md.gain.exponentialRampToValueAtTime(freq * 0.05, t + decay);
+    mod.connect(md).connect(car.frequency);
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
     g.gain.linearRampToValueAtTime(vel, t + 0.006);
     g.gain.exponentialRampToValueAtTime(0.0008, t + decay);
     car.connect(g);
-    g.connect(arpGain);   // dry
-    g.connect(arpSend);   // into ping-pong delay
+    g.connect(inst.arpGain);
+    g.connect(inst.arpSend);
     car.start(t); mod.start(t);
-    car.stop(t + decay + 0.05);
-    mod.stop(t + decay + 0.05);
+    car.stop(t + decay + 0.05); mod.stop(t + decay + 0.05);
   }
 
-  // adjust density + pad brightness to match the room. Applied on bar lines,
-  // eased in (setTargetAtTime) so it is never an abrupt jump.
-  function applyVariation(t) {
-    const kind = current && current.kind;
-    let base = 1200, rest = 0.35;
-    if (kind === 'cavern' || kind === 'interior') { base = 780; rest = 0.55; } // sparser, darker
-    else if (kind === 'hum') { base = 1000; rest = 0.62; }                     // half-density, pad+sub carry
-    restProb = rest;
-    if (padFilter) {
-      padFilter.frequency.cancelScheduledValues(t);
-      padFilter.frequency.setTargetAtTime(base, t, 2.5); // intrinsic base; LFO adds on top
+  // detuned square+saw lead with a portamento glide from the previous note and a
+  // vibrato that fades in after onset. Returns the note frequency (for glide chaining).
+  function leadVoice(inst, midi, t, durSec, glideFrom, gainMul) {
+    const f = mtof(midi);
+    const peak = 0.5 * (gainMul || 1);
+    const sus = Math.max(0.08, durSec * 0.9);
+
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.linearRampToValueAtTime(peak, t + 0.012);
+    env.gain.setValueAtTime(peak, t + sus * 0.5);
+    env.gain.exponentialRampToValueAtTime(0.0008, t + sus + 0.12);
+    env.connect(inst.shaper);
+
+    const lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 5.5;
+    const lfoDepth = ctx.createGain();
+    lfoDepth.gain.setValueAtTime(0, t);
+    lfoDepth.gain.linearRampToValueAtTime(4, t + 0.09); // vibrato +/-4 cents, eased in
+    lfo.connect(lfoDepth);
+
+    const gf = glideFrom > 0 ? glideFrom : f;
+    [['square', -6], ['sawtooth', 6]].forEach(([type, cents]) => {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.setValueAtTime(gf, t);
+      o.frequency.exponentialRampToValueAtTime(f, t + 0.055); // the rubbery bend
+      o.detune.setValueAtTime(cents, t);                      // +/-6 cents spread
+      lfoDepth.connect(o.detune);                             // + vibrato on top
+      o.connect(env);
+      o.start(t);
+      o.stop(t + sus + 0.2);
+    });
+    lfo.start(t); lfo.stop(t + sus + 0.2);
+    return f;
+  }
+
+  // --- scheduler ---
+
+  function tickInstance(inst, t) {
+    const song = inst.song;
+    const step = inst.step;
+    const barIndex = Math.floor(step / STEPS_PER_BAR);
+    const stepInBar = step % STEPS_PER_BAR;
+    const slot = Math.floor(barIndex / song.barsPerChord) % song.chords.length;
+    const sixteenth = (60 / song.bpm) / 4;
+
+    // swing: nudge the off-beat 8ths later
+    let when = t;
+    if (song.swing && (stepInBar % 4 === 2)) when = t + sixteenth * 2 * song.swing;
+
+    // new chord every barsPerChord bars
+    if (stepInBar === 0 && (barIndex % song.barsPerChord === 0)) {
+      playPad(inst, slot, t);
+      playSub(inst, slot, t);
     }
-  }
+    // low toll on bar 1 of the loop (chancel)
+    if (song.toll && step === 0) pluck(inst, mtof(song.sub[0] + 12), t, 0.18, 2.4);
 
-  function scheduleStep(s, t) {
-    currentChord = PROG[Math.floor(s / 16)];
-    if (s % 8 === 0) applyVariation(t);                       // bar boundary
-    if (s % 16 === 0) { padChord(currentChord, t); subNote(currentChord, t); } // chord boundary
-    if (Math.random() > restProb) {                          // ~35%+ rests -> it breathes
-      let m = currentChord.arp[Math.floor(Math.random() * currentChord.arp.length)];
-      if (Math.random() < 0.14) m += 12;                     // occasional octave jump
-      pluck(mtof(m), t, 0.1 + Math.random() * 0.05);
+    // sidechain pump: pad+sub duck to -4 dB (0.63) each beat, 60ms dip, 200ms recovery
+    if (stepInBar % STEPS_PER_BEAT === 0) {
+      const p = inst.pump.gain;
+      p.setValueAtTime(1, t);
+      p.linearRampToValueAtTime(0.63, t + 0.06);
+      p.linearRampToValueAtTime(1, t + 0.26);
     }
+
+    // arp
+    const arp = song.arp;
+    const stepsPerArp = STEPS_PER_BAR / arp.div; // 2 for 8ths, 1 for 16ths
+    if (step % stepsPerArp === 0) {
+      const idx = arp.seq[(stepInBar / stepsPerArp) % arp.seq.length];
+      if (idx >= 0) {
+        const pool = song.arpTones[slot];
+        pluck(inst, mtof(pool[idx % pool.length]), when, 0.075, 0.4);
+      }
+    }
+
+    // lead
+    const ev = song._leadByStep[step];
+    if (ev) {
+      const durSec = ev.durSteps * sixteenth;
+      if (song.leadType === 'pluck') {                       // ringwood music-box
+        pluck(inst, mtof(ev.midi), when, 0.14, Math.min(1.9, durSec * 0.9 + 0.3));
+        inst.prevLeadFreq = mtof(ev.midi);
+      } else {
+        const prev = inst.prevLeadFreq;
+        const f = leadVoice(inst, ev.midi, when, durSec, prev, 1);
+        if (song.leadOctaveDouble) leadVoice(inst, ev.midi + 12, when, durSec, prev > 0 ? prev * 2 : 0, 0.4);
+        inst.prevLeadFreq = f;
+      }
+    }
+
+    inst.step = (inst.step + 1) % song._loopSteps;
   }
 
-  // lookahead scheduler (same setTimeout + AudioContext.currentTime pattern
-  // the beds use). nextStepTime advances by a fixed increment so it never drifts.
   function scheduler() {
-    while (nextStepTime < ctx.currentTime + 0.12) {
-      scheduleStep(mStep, nextStepTime);
-      nextStepTime += M_8TH;
-      mStep = (mStep + 1) % M_LOOP_STEPS;
+    const horizon = ctx.currentTime + 0.12;
+    for (const inst of instances) {
+      if (!inst.alive) continue;
+      const sixteenth = (60 / inst.song.bpm) / 4;
+      while (inst.nextStepTime < horizon) {
+        tickInstance(inst, inst.nextStepTime);
+        inst.nextStepTime += sixteenth; // fixed increment -> never drifts, loops seamlessly
+      }
     }
     schedulerTimer = setTimeout(scheduler, 25);
   }
 
-  function startSparkle() {
-    sparkleAlive = true;
-    (function spark() {
-      if (!sparkleAlive) return;
-      const chord = currentChord || PROG[0];
-      const m = chord.arp[Math.floor(Math.random() * chord.arp.length)] + 24; // 2 octaves up
-      pluck(mtof(m), ctx.currentTime + 0.05, 0.04 + Math.random() * 0.02, 1.6); // long tail via delay
-      setTimeout(spark, 4000 + Math.random() * 6000); // every 4-10s
-    })();
-  }
+  // --- public music API ---
 
-  function musicStart() {
+  function musicStart(region) {
     ensure();
-    if (musicRunning) return; // idempotent
+    if (musicRunning) { if (region) setRegion(region); return; } // idempotent
     musicRunning = true;
-    const now = ctx.currentTime;
+    currentRegion = SONGS[region] ? region : 'island';
 
-    // bus: musicBus (quiet) -> duckGain -> master. duckGain is separate so
-    // dialogue ducking never fights the stop fade on musicBus.
+    // bus: musicBus (0.3) -> duckGain -> master. duckGain is separate so the
+    // dialogue duck never fights the stop fade on musicBus.
     duckGain = ctx.createGain();
     duckGain.gain.value = 1;
     duckGain.connect(master);
     musicBus = ctx.createGain();
-    musicBus.gain.value = 0.3; // present under the beds — the plucks must read through the noise
+    musicBus.gain.value = 0.3;
     musicBus.connect(duckGain);
 
-    // pad chain + slow filter sweep
-    padGain = ctx.createGain();
-    padGain.gain.value = 0.5;
-    padFilter = ctx.createBiquadFilter();
-    padFilter.type = 'lowpass';
-    padFilter.frequency.value = 1200;
-    padFilter.Q.value = 0.7;
-    padFilter.connect(padGain).connect(musicBus);
-    mLfo = ctx.createOscillator();
-    mLfo.type = 'sine';
-    mLfo.frequency.value = 1 / 30; // one sweep per ~30s
-    const lfoGain = ctx.createGain();
-    lfoGain.gain.value = 400;      // +/-400 Hz around the base cutoff
-    mLfo.connect(lfoGain).connect(padFilter.frequency);
-    mLfo.start(now);
+    // analyser tap for the HUD visualiser (no onward output)
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.8;
+    analyserData = new Uint8Array(analyser.frequencyBinCount);
+    musicBus.connect(analyser);
 
-    // sub
-    subGain = ctx.createGain();
-    subGain.gain.value = 0.6;
-    subGain.connect(musicBus);
+    const inst = createInstance(currentRegion, 1);
+    inst.step = 0;
+    inst.nextStepTime = ctx.currentTime + 0.12;
+    instances = [inst];
 
-    // arp dry + ping-pong feedback delay (0.375s, fb 0.35, low wet)
-    arpGain = ctx.createGain();
-    arpGain.gain.value = 0.5;
-    arpGain.connect(musicBus);
-    delayL = ctx.createDelay(1);
-    delayR = ctx.createDelay(1);
-    delayL.delayTime.value = 0.375;
-    delayR.delayTime.value = 0.375;
-    const fb = ctx.createGain();
-    fb.gain.value = 0.35;
-    const panL = ctx.createStereoPanner();
-    const panR = ctx.createStereoPanner();
-    panL.pan.value = -0.5;
-    panR.pan.value = 0.5;
-    wetGain = ctx.createGain();
-    wetGain.gain.value = 0.25;
-    delayL.connect(panL).connect(wetGain);
-    delayL.connect(delayR);
-    delayR.connect(panR).connect(wetGain);
-    delayR.connect(fb).connect(delayL);
-    wetGain.connect(musicBus);
-    arpSend = ctx.createGain();
-    arpSend.gain.value = 1;
-    arpSend.connect(delayL);
-
-    restProb = 0.35;
-    currentChord = PROG[0];
-    mStep = 0;
-    nextStepTime = now + 0.15;
+    // dip the ambience a touch further while a song plays
+    if (ambienceBus) {
+      const t = ctx.currentTime;
+      ambienceBus.gain.cancelScheduledValues(t);
+      ambienceBus.gain.setValueAtTime(ambienceBus.gain.value, t);
+      ambienceBus.gain.linearRampToValueAtTime(0.32, t + 2.5);
+    }
     scheduler();
-    startSparkle();
+  }
+
+  // crossfade to another region's song over ~2.5s, swapped on a bar boundary.
+  function setRegion(region) {
+    if (!musicRunning) return;
+    if (!region || !SONGS[region]) return;   // undefined / unknown -> keep current
+    if (region === currentRegion) return;
+    currentRegion = region;
+
+    const outgoing = instances[instances.length - 1];
+    const sixteenth = (60 / outgoing.song.bpm) / 4;
+    // next bar boundary of the outgoing song, at least ~a beat away so we don't
+    // land on a boundary that's already inside the lookahead window.
+    let stepsToBar = (STEPS_PER_BAR - (outgoing.step % STEPS_PER_BAR)) % STEPS_PER_BAR;
+    if (stepsToBar < 4) stepsToBar += STEPS_PER_BAR;
+    const swapTime = outgoing.nextStepTime + stepsToBar * sixteenth;
+
+    const incoming = createInstance(region, 0);
+    incoming.step = 0;
+    incoming.nextStepTime = swapTime;
+    incoming.songGain.gain.setValueAtTime(0.0001, swapTime);
+    incoming.songGain.gain.linearRampToValueAtTime(1, swapTime + 2.5);
+    outgoing.songGain.gain.cancelScheduledValues(swapTime);
+    outgoing.songGain.gain.setValueAtTime(outgoing.songGain.gain.value, swapTime);
+    outgoing.songGain.gain.linearRampToValueAtTime(0.0001, swapTime + 2.5);
+    instances.push(incoming);
+
+    setTimeout(() => retireInstance(outgoing), (swapTime - ctx.currentTime + 2.8) * 1000);
+  }
+
+  // 5 log-spaced levels 0..1 for the HUD visualiser (zeros when not running).
+  function getLevels() {
+    if (!musicRunning || !analyser || !analyserData) return [0, 0, 0, 0, 0];
+    analyser.getByteFrequencyData(analyserData);
+    const n = analyserData.length;                 // 128 bins
+    const edges = [1, 4, 11, 28, 64, 120];         // bass -> air
+    const out = [];
+    for (let b = 0; b < 5; b++) {
+      const lo = edges[b], hi = Math.min(edges[b + 1], n);
+      let sum = 0, cnt = 0;
+      for (let i = lo; i < hi; i++) { sum += analyserData[i]; cnt++; }
+      out.push(cnt ? Math.min(1, (sum / cnt) / 180) : 0);
+    }
+    return out;
   }
 
   function musicStop() {
     if (!musicRunning) return;
     musicRunning = false;
-    sparkleAlive = false;
     if (schedulerTimer) { clearTimeout(schedulerTimer); schedulerTimer = null; }
     const t = ctx.currentTime;
     if (musicBus) {
@@ -573,13 +874,19 @@ const IslandAudio = (() => {
       musicBus.gain.setValueAtTime(musicBus.gain.value, t);
       musicBus.gain.linearRampToValueAtTime(0, t + 1); // fade out over 1s
     }
-    const toKill = [musicBus, duckGain, padFilter, padGain, subGain, arpGain, wetGain, delayL, delayR, arpSend];
-    const lfoRef = mLfo;
+    if (ambienceBus) {                                 // restore ambience level
+      ambienceBus.gain.cancelScheduledValues(t);
+      ambienceBus.gain.setValueAtTime(ambienceBus.gain.value, t);
+      ambienceBus.gain.linearRampToValueAtTime(0.4, t + 1.5);
+    }
+    const insts = instances.slice();
+    const busRef = musicBus, duckRef = duckGain, anRef = analyser;
     setTimeout(() => {
-      try { if (lfoRef) lfoRef.stop(); } catch (e) { /* already stopped */ }
-      toKill.forEach((n) => { try { if (n) n.disconnect(); } catch (e) { /* ignore */ } });
-    }, 1500); // after the fade + delay tails
-    musicBus = duckGain = padFilter = padGain = subGain = arpGain = wetGain = delayL = delayR = arpSend = mLfo = null;
+      insts.forEach(retireInstance);
+      [busRef, duckRef, anRef].forEach((n) => { try { if (n) n.disconnect(); } catch (e) { /* ignore */ } });
+    }, 2000); // after the fade + delay tails
+    instances = [];
+    musicBus = duckGain = analyser = analyserData = null;
   }
 
   // gentle -30% dip while dialogue blips fire; recovers quickly.
@@ -598,5 +905,5 @@ const IslandAudio = (() => {
     musicStart();
   }
 
-  return { begin, setAmbience, click, whoosh, chime, pickup, blip, denied, musicStart, musicStop };
+  return { begin, setAmbience, click, whoosh, chime, pickup, blip, denied, musicStart, musicStop, setRegion, getLevels };
 })();

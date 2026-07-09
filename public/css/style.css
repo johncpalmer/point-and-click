@@ -8,16 +8,30 @@
   --ink-dim: #8fa1ad;
   --bg0: #05090e;
   --bg1: #0a141d;
+  /* sRGB fallbacks — overridden in wide gamut just below */
   --acc: #ff8a2a;
   --acc2: #5fd8ff;
   --glow-obj: #ffd479;
   --violet: #b98cff;
+  --acc3: #ff33a6; /* hot magenta, used sparingly */
   --panel: rgba(7, 14, 21, 0.88);
   --line: rgba(223, 232, 238, 0.22);
   --font-disp: 'DIN Alternate', 'Bahnschrift', 'Franklin Gothic Medium', 'Arial Narrow', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --font-body: -apple-system, 'Segoe UI', system-ui, sans-serif;
   font-size: 16px;
+}
+
+/* P3 wide-gamut accents where supported — punchier orange/cyan/gold/violet
+   plus the magenta highlight. Falls back to the sRGB hexes above otherwise. */
+@supports (color: color(display-p3 1 1 1)) {
+  :root {
+    --acc: color(display-p3 1 0.52 0.1);
+    --acc2: color(display-p3 0.2 0.9 1);
+    --glow-obj: color(display-p3 1 0.85 0.4);
+    --violet: color(display-p3 0.75 0.55 1);
+    --acc3: color(display-p3 1 0.2 0.65);
+  }
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -423,6 +437,14 @@ button {
   --c: var(--acc);
 }
 
+/* armed with an item: gold ring, wins over .hot so it reads as "ready to use" */
+#cursor-ring.armed {
+  width: 46px;
+  height: 46px;
+  --c: var(--glow-obj);
+  filter: drop-shadow(0 0 6px rgba(255, 212, 121, 0.6));
+}
+
 #ripple {
   position: absolute;
   width: 14px;
@@ -441,6 +463,33 @@ button {
 @keyframes rip {
   0% { transform: translate(-50%, -50%) scale(0.4) rotate(45deg); opacity: 0.9; }
   100% { transform: translate(-50%, -50%) scale(7) rotate(45deg); opacity: 0; }
+}
+
+/* ---- floating observation captions: the island whispering back ---- */
+#captions { position: absolute; inset: 0; pointer-events: none; z-index: 31; }
+
+.caption {
+  position: absolute;
+  max-width: 26em;
+  text-align: center;
+  font-family: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+  font-style: italic;
+  font-size: 1.02rem;
+  line-height: 1.5;
+  color: var(--ink);
+  /* soft dark halo instead of a plate — quiet, painterly */
+  text-shadow:
+    0 0 8px rgba(2, 6, 12, 0.95),
+    0 0 20px rgba(2, 6, 12, 0.85),
+    0 2px 5px rgba(0, 0, 0, 0.9);
+  opacity: 0;
+  transform: translate(-50%, -44%);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+
+.caption.show {
+  opacity: 1;
+  transform: translate(-50%, -50%);
 }
 
 /* ---------------------------------------------------------------- hotspots */
@@ -602,6 +651,9 @@ button {
   display: flex;
   gap: 0.7rem;
   align-items: center;
+  padding: 0.3rem 0.7rem 0.3rem 0.5rem;
+  border: 1px solid transparent;
+  border-image: linear-gradient(120deg, rgba(255, 138, 42, 0.5), rgba(95, 216, 255, 0.4)) 1;
 }
 
 #scene-name {
@@ -640,9 +692,36 @@ button {
 }
 
 #depth-pips i.lit {
-  background: var(--acc);
+  background: linear-gradient(90deg, var(--acc), var(--acc3));
   border-color: var(--acc);
   box-shadow: 0 0 9px rgba(255, 138, 42, 0.7);
+}
+
+/* brief pop when the depth actually changes (class added on those renders) */
+#depth-pips i.pop { animation: pip-pop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+@keyframes pip-pop {
+  0%   { transform: skewX(-18deg) scale(0.55); filter: brightness(2); }
+  55%  { transform: skewX(-18deg) scale(1.18); filter: brightness(1.4); }
+  100% { transform: skewX(-18deg) scale(1); filter: brightness(1); }
+}
+
+/* ---- ambient-channel equalizer (next to the depth meter) ---- */
+#eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+  margin-left: 0.55rem;
+}
+
+#eq[hidden] { display: none; }
+
+#eq i {
+  width: 3px;
+  height: 2px;
+  background: linear-gradient(to top, var(--acc2), var(--acc3));
+  transition: height 0.08s linear;
 }
 
 #hud-right {
@@ -658,10 +737,12 @@ button {
   background: var(--panel);
   color: var(--ink);
   border: 1px solid var(--line);
+  border-image: linear-gradient(135deg, rgba(255, 138, 42, 0.6), rgba(95, 216, 255, 0.45)) 1;
   padding: 0.5rem 1.2rem;
   letter-spacing: 0.28em;
   font-size: 0.74rem;
-  transition: all 0.25s;
+  transition: transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1),
+              border-color 0.25s, color 0.25s, box-shadow 0.25s;
   cursor: none;
 }
 
@@ -669,8 +750,12 @@ button {
 #scan-btn:hover {
   border-color: var(--acc);
   color: var(--acc);
-  box-shadow: 0 0 16px rgba(255, 138, 42, 0.3);
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 0 20px rgba(255, 138, 42, 0.4);
 }
+
+#ascend-btn:active,
+#scan-btn:active { transform: translateY(0) scale(0.98); }
 
 #ascend-btn[hidden], #scan-btn[hidden] { display: none; }
 
@@ -689,6 +774,12 @@ button {
   z-index: 35;
   pointer-events: none;
   animation: toast-in 0.3s ease;
+}
+
+/* clue landings get the magenta edge; system toasts keep the orange one */
+#toast.clue {
+  border-left-color: var(--acc3);
+  box-shadow: 0 0 20px rgba(255, 51, 166, 0.28);
 }
 
 @keyframes toast-in {
@@ -714,14 +805,21 @@ button {
   font-family: var(--font-disp);
   letter-spacing: 0.16em;
   font-size: 0.78rem;
-  transition: border-color 0.25s, box-shadow 0.25s;
+  transition: transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1),
+              border-color 0.25s, box-shadow 0.25s;
   cursor: none;
   pointer-events: auto;
 }
 
 .inv-btn-label { text-shadow: 0 1px 3px #000; }
 
-#inventory-btn:hover { border-color: var(--glow-obj); box-shadow: 0 0 16px rgba(255, 212, 121, 0.3); }
+#inventory-btn:hover {
+  border-color: var(--glow-obj);
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 0 20px rgba(255, 212, 121, 0.4);
+}
+
+#inventory-btn:active { transform: translateY(0) scale(0.98); }
 
 #inv-count {
   font-family: var(--font-mono);
@@ -775,7 +873,7 @@ button {
 
 .satchel-item {
   display: grid;
-  grid-template-columns: 2rem 1fr;
+  grid-template-columns: 2rem 1fr auto;
   grid-template-rows: auto auto;
   gap: 0.1rem 0.7rem;
   align-items: baseline;
@@ -784,6 +882,31 @@ button {
   transition: border-color 0.2s, background 0.2s;
   cursor: none;
 }
+
+/* per-item USE verb: arms the item for a stage click */
+.satchel-use {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  align-self: center;
+  background: transparent;
+  border: 1px solid rgba(255, 212, 121, 0.5);
+  color: var(--glow-obj);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.2em;
+  padding: 0.32rem 0.7rem;
+  cursor: none;
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s, box-shadow 0.2s;
+}
+
+.satchel-use:hover {
+  background: rgba(255, 212, 121, 0.16);
+  transform: translateY(-1px) scale(1.05);
+  box-shadow: 0 0 12px rgba(255, 212, 121, 0.4);
+}
+
+.satchel-use:active { transform: translateY(0) scale(0.97); }
 
 .satchel-item:hover { border-color: rgba(255, 212, 121, 0.4); background: rgba(255, 212, 121, 0.06); }
 
@@ -1056,13 +1179,20 @@ button {
   font-family: var(--font-disp);
   letter-spacing: 0.16em;
   font-size: 0.78rem;
-  transition: border-color 0.25s, box-shadow 0.25s;
+  transition: transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1),
+              border-color 0.25s, box-shadow 0.25s;
   cursor: none;
 }
 
 .journal-btn-label { text-shadow: 0 1px 3px #000; }
 
-#journal-btn:hover { border-color: var(--glow-obj); box-shadow: 0 0 16px rgba(255, 212, 121, 0.3); }
+#journal-btn:hover {
+  border-color: var(--glow-obj);
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 0 20px rgba(255, 212, 121, 0.4);
+}
+
+#journal-btn:active { transform: translateY(0) scale(0.98); }
 
 #journal-count {
   font-family: var(--font-mono);
@@ -1073,8 +1203,8 @@ button {
 
 @keyframes journal-pulse {
   0%, 100% { box-shadow: none; border-color: rgba(95, 216, 255, 0.4); }
-  30% { box-shadow: 0 0 24px rgba(255, 212, 121, 0.65); border-color: var(--glow-obj); }
-  70% { box-shadow: 0 0 10px rgba(255, 212, 121, 0.35); border-color: var(--glow-obj); }
+  30% { box-shadow: 0 0 26px var(--acc3); border-color: var(--acc3); }
+  70% { box-shadow: 0 0 12px rgba(255, 212, 121, 0.4); border-color: var(--glow-obj); }
 }
 
 #journal-btn.pulse { animation: journal-pulse 1.5s ease; }
